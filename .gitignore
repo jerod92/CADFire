@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+checkpoints/
+*.pt
+*.pth
+diagnostics.json
+output.dxf
+.pytest_cache/
+.ipynb_checkpoints/
+*.so
+*.egg
+.env

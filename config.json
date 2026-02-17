@@ -2,8 +2,8 @@
   "canvas": {
     "world_width": 1000.0,
     "world_height": 1000.0,
-    "render_width": 128,
-    "render_height": 128
+    "render_width": 256,
+    "render_height": 256
   },
   "layers": {
     "max_layers": 8,
@@ -84,7 +84,7 @@
   ],
   "model": {
     "image_channels_base": 9,
-    "render_size": 128,
+    "render_size": 256,
     "text_vocab_size": 4096,
     "text_max_len": 128,
     "text_embed_dim": 128,

@@ -41,6 +41,7 @@ cadfire/
     trace_tasks.py     # Trace line/circle/composite from reference image
   training/        # PPO trainer, rollout buffer, checkpointing
     ppo.py         # Full PPO-Clip with curriculum learning
+    pretrain_tools.py  # Supervised pre-training for text→tool classifier
     rollout.py     # GAE-based rollout buffer
     checkpoint.py  # Save/load with tool-list growth handling
   tokenizer/       # Byte-pair encoding tokenizer
@@ -58,11 +59,15 @@ tests/             # 78 tests covering all modules
 ## 4. Architecture Overview
 
 ### A. Model Input (Multi-Modal)
-1.  **Image Tensor:** `(H x W x C)` where C = 3 + 3 + L + 1 = 15 (for L=8 layers)
+1.  **Image Tensor:** `(H x W x C)` where C = 3 + 3 + L + 1 + 4 = 19 (for L=8 layers, H=W=256)
     - Channels 0-2: Current Viewport RGB (includes ghosting and selection highlights).
     - Channels 3-5: User-provided Raster Image (for tracing/reference).
     - Channels 6-(6+L-1): Layer Masks (Binary masks for each CAD layer).
     - Channel (6+L): Selection Mask (Binary mask of currently selected items).
+    - Channel (6+L+1): X Ground Coords (tanh-scaled world x, centered on viewport).
+    - Channel (6+L+2): Y Ground Coords (tanh-scaled world y, centered on viewport).
+    - Channel (6+L+3): X Window Coords (linear ramp 0→1, left to right).
+    - Channel (6+L+4): Y Window Coords (linear ramp 0→1, top to bottom).
 2.  **Text Input:** Tokenized prompt (BPE, vocab_size=4096, max_len=128).
 3.  **Vector State:** 16-dim vector: active tool, zoom, viewport center, layer, color, entity/selection counts.
 
@@ -139,8 +144,8 @@ That's it. The registry auto-discovers on `TaskRegistry.discover()`, and the tra
 
 ### Environment [DONE]
 - [x] Numpy Engine: Coordinate system, Layer management, Geometry storage
-- [x] Renderer: RGB + Layer masks + Selection mask + Reference image
-- [x] State Manager: Vector state + multi-channel image tensor
+- [x] Renderer: RGB + Layer masks + Selection mask + Reference image + Coordinate grids (256×256)
+- [x] State Manager: Vector state + multi-channel image tensor (19 channels)
 
 ### Model Architecture [DONE]
 - [x] Vision Encoder: ResNet-style with 4-scale skip connections
@@ -152,7 +157,7 @@ That's it. The registry auto-discovers on `TaskRegistry.discover()`, and the tra
 ### Initial Tasks [DONE]
 - [x] Fit to View: Reward based on bounding box occupancy
 - [x] Draw Primitive: Line, Circle, Rectangle, Polygon, Ellipse, Arc, Multi-primitive
-- [x] Select Shape: Reward for isolating a specific entity
+- [x] Select Shape: Reward for isolating a specific entity (ambiguity-free: unique types per scene)
 - [x] Select by Color: Reward for selecting all objects of a given color
 - [x] Erase Selection: Reward for targeted deletion
 - [x] Zoom/Pan: Reward for centering a target coordinate
@@ -162,6 +167,7 @@ That's it. The registry auto-discovers on `TaskRegistry.discover()`, and the tra
 
 ### Training Infrastructure [DONE]
 - [x] PPO-Clip with GAE
+- [x] Supervised pre-training for text→tool classifier (pretrain_tools.py)
 - [x] Rollout buffer with mini-batch iteration
 - [x] Checkpoint save/load with tool-list growth
 - [x] Diagnostics JSON logging

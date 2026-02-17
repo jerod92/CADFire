@@ -42,16 +42,11 @@ class CADAgent(nn.Module):
         m = self.config["model"]
         layers_cfg = self.config["layers"]
 
-        # Calculate total input channels
+        # Calculate total input channels to match renderer output:
+        #   3 (viewport RGB) + 3 (reference) + L (layers) + 1 (selection)
+        #   + 4 (coordinate grids: ground x/y tanh, window x/y linear)
         max_layers = layers_cfg["max_layers"]
-        in_channels = m["image_channels_base"] + max_layers + 1
-        # image_channels_base = 3(viewport) + 3(reference) + 3(reserved) = 9
-        # Actually per CLAUDE.md: 3 + 3 + L + 1 = 7 + L
-        # We use image_channels_base=9 to include some padding channels
-        # Total = image_channels_base + max_layers + 1 = 9 + 8 + 1 = 18
-        # But renderer produces: 3 + 3 + L + 1 = 15 for L=8
-        # Let's match the renderer
-        in_channels = 3 + 3 + max_layers + 1  # = 15
+        in_channels = 3 + 3 + max_layers + 1 + 4  # = 19 for L=8
 
         self.in_channels = in_channels
         n_tools = num_tools()

@@ -2,11 +2,15 @@
 Pure-numpy rasterizer that produces the multi-channel image tensor
 consumed by the RL model.
 
-Output channels (as defined in CLAUDE.md):
-  0-2:   Current viewport RGB (with ghosting/selection highlights)
-  3-5:   Reference raster image (user-provided, e.g. for tracing)
-  6..6+L-1: Layer masks (binary, one per layer)
-  6+L:   Selection mask (binary)
+Output channels:
+  0-2:       Current viewport RGB (with ghosting/selection highlights)
+  3-5:       Reference raster image (user-provided, e.g. for tracing)
+  6..6+L-1:  Layer masks (binary, one per layer)
+  6+L:       Selection mask (binary)
+  6+L+1:     X ground coords (tanh-scaled world x)
+  6+L+2:     Y ground coords (tanh-scaled world y)
+  6+L+3:     X window coords (min-max scaled, 0-1 linear ramp)
+  6+L+4:     Y window coords (min-max scaled, 0-1 linear ramp)
 
 All rendering is done via Bresenham line drawing and polygon fill,
 keeping everything in numpy with no external rendering deps.
@@ -39,8 +43,8 @@ class Renderer:
         self.max_layers = self.config["layers"]["max_layers"]
 
     def num_channels(self) -> int:
-        """Total image channels: 3 (viewport) + 3 (reference) + L (layers) + 1 (selection)."""
-        return 3 + 3 + self.max_layers + 1
+        """Total image channels: 3 (viewport) + 3 (reference) + L (layers) + 1 (selection) + 4 (coords)."""
+        return 3 + 3 + self.max_layers + 1 + 4
 
     def render(self, engine: CADEngine,
                reference_image: np.ndarray | None = None) -> np.ndarray:
@@ -69,6 +73,11 @@ class Renderer:
         # Channel 6+L: Selection mask
         sel_mask = self._render_selection_mask(engine)
         obs[:, :, 6 + self.max_layers] = sel_mask
+
+        # Channels 6+L+1 .. 6+L+4: Coordinate grids
+        coord_base = 6 + self.max_layers + 1
+        coord_grids = self._render_coord_channels(engine)
+        obs[:, :, coord_base:coord_base + 4] = coord_grids
 
         return obs
 
@@ -134,7 +143,13 @@ class Renderer:
 
     def _draw_line(self, img: np.ndarray, x0: int, y0: int, x1: int, y1: int,
                    color: np.ndarray, thickness: int = 1):
-        """Bresenham line with thickness."""
+        """Bresenham line with thickness.
+
+        All arithmetic is done with native Python ints to avoid numpy
+        int32 overflow when ``2 * err`` is computed for large pixel
+        distances (the original overflow warning at line 214).
+        """
+        x0, y0, x1, y1 = int(x0), int(y0), int(x1), int(y1)
         dx = abs(x1 - x0)
         dy = abs(y1 - y0)
         sx = 1 if x0 < x1 else -1
@@ -142,7 +157,10 @@ class Renderer:
         err = dx - dy
         half_t = thickness // 2
 
-        while True:
+        # Safety limit: prevent infinite loops from degenerate coordinates
+        max_steps = 2 * (dx + dy) + 1
+
+        for _ in range(max_steps):
             for ty in range(-half_t, half_t + 1):
                 for tx in range(-half_t, half_t + 1):
                     yy, xx = y0 + ty, x0 + tx
@@ -200,13 +218,21 @@ class Renderer:
         return masks
 
     def _draw_mask_line(self, mask: np.ndarray, x0: int, y0: int, x1: int, y1: int):
-        """Bresenham for binary mask."""
+        """Bresenham for binary mask.
+
+        Uses native Python ints to avoid numpy int32 overflow on
+        ``2 * err`` for large pixel distances.
+        """
+        x0, y0, x1, y1 = int(x0), int(y0), int(x1), int(y1)
         dx = abs(x1 - x0)
         dy = abs(y1 - y0)
         sx = 1 if x0 < x1 else -1
         sy = 1 if y0 < y1 else -1
         err = dx - dy
-        while True:
+
+        max_steps = 2 * (dx + dy) + 1
+
+        for _ in range(max_steps):
             if 0 <= y0 < self.H and 0 <= x0 < self.W:
                 mask[y0, x0] = 1.0
             if x0 == x1 and y0 == y1:
@@ -232,6 +258,46 @@ class Renderer:
             for i in range(len(px) - 1):
                 self._draw_mask_line(mask, px[i], py[i], px[i + 1], py[i + 1])
         return mask
+
+    def _render_coord_channels(self, engine: CADEngine) -> np.ndarray:
+        """Render 4 spatial coordinate channels.
+
+        Channel 0: X ground (tanh-scaled world x, centered on viewport)
+        Channel 1: Y ground (tanh-scaled world y, centered on viewport)
+        Channel 2: X window (linear ramp 0-1, left to right)
+        Channel 3: Y window (linear ramp 0-1, top to bottom)
+
+        Ground channels use ``tanh(world_coord / half_extent)`` so that
+        the visible viewport maps roughly to [-1, 1] while coordinates
+        beyond the viewport saturate smoothly.
+        """
+        H, W = self.H, self.W
+        coords = np.zeros((H, W, 4), dtype=np.float32)
+
+        # Window coords: simple linear ramps [0, 1]
+        wx = np.linspace(0.0, 1.0, W, dtype=np.float32)
+        wy = np.linspace(0.0, 1.0, H, dtype=np.float32)
+        coords[:, :, 2] = wx[np.newaxis, :]   # broadcast across rows
+        coords[:, :, 3] = wy[:, np.newaxis]   # broadcast across cols
+
+        # Ground coords: map each pixel to world space, then tanh-normalize
+        vis_min, vis_max = engine.viewport.visible_bounds()
+        center = (vis_min + vis_max) / 2.0
+        half_ext = np.maximum((vis_max - vis_min) / 2.0, 1e-6)
+
+        # Build world-space grids via NDC
+        ndc_x = np.linspace(0.0, 1.0, W, dtype=np.float32)
+        ndc_y = np.linspace(1.0, 0.0, H, dtype=np.float32)  # flip y
+        world_x = vis_min[0] + ndc_x * (vis_max[0] - vis_min[0])
+        world_y = vis_min[1] + ndc_y * (vis_max[1] - vis_min[1])
+
+        # Center and scale, then tanh
+        gx = np.tanh((world_x - center[0]) / half_ext[0])
+        gy = np.tanh((world_y - center[1]) / half_ext[1])
+        coords[:, :, 0] = gx[np.newaxis, :]
+        coords[:, :, 1] = gy[:, np.newaxis]
+
+        return coords
 
     def _resize_reference(self, ref: np.ndarray) -> np.ndarray:
         """Nearest-neighbor resize of reference image to render size."""

@@ -38,6 +38,7 @@ from cadfire.model.cad_agent import CADAgent
 from cadfire.renderer.rasterizer import Renderer
 from cadfire.tasks.registry import TaskRegistry
 from cadfire.tokenizer.bpe import BPETokenizer
+from cadfire.training.checkpoint import CheckpointManager
 from cadfire.utils.config import load_config, tool_to_index
 
 
@@ -338,6 +339,7 @@ def pretrain_cursor_imitation(
     device: str | None = None,
     verbose: bool = True,
     dataset_seed: int = 42,
+    checkpoint_dir: str | None = None,
 ) -> Dict[str, List[float]]:
     """
     Run cursor imitation pretraining (behavioral cloning).
@@ -346,16 +348,24 @@ def pretrain_cursor_imitation(
     using supervised cross-entropy on oracle (tool_id, cursor_flat_id) pairs.
     The text encoder is kept frozen (already trained in Phase 1).
 
+    Checkpointing: if ``checkpoint_dir`` is provided, the function saves an
+    epoch-level checkpoint after every epoch (tag ``cursor_pretrain_epoch_N``)
+    and a rolling ``cursor_pretrain_latest`` tag. On restart it automatically
+    detects the latest completed epoch and resumes from there, skipping
+    dataset generation only when the dataset is already cached.
+
     Args:
-        agent:        The CADAgent model (modified in-place).
-        config:       Optional config dict.
-        num_samples:  Number of oracle samples to generate.
-        num_epochs:   Training epochs over the dataset.
-        lr:           Learning rate.
-        batch_size:   Mini-batch size (keep small — images are large).
-        device:       torch device string.
-        verbose:      Print per-epoch stats.
-        dataset_seed: RNG seed for reproducible dataset generation.
+        agent:          The CADAgent model (modified in-place).
+        config:         Optional config dict.
+        num_samples:    Number of oracle samples to generate.
+        num_epochs:     Training epochs over the dataset.
+        lr:             Learning rate.
+        batch_size:     Mini-batch size (keep small — images are large).
+        device:         torch device string.
+        verbose:        Print per-epoch stats.
+        dataset_seed:   RNG seed for reproducible dataset generation.
+        checkpoint_dir: Directory for epoch checkpoints and resume. If None,
+                        no checkpoints are written.
 
     Returns:
         Dict with 'tool_losses', 'cursor_losses', 'tool_accuracies' lists.
@@ -375,6 +385,38 @@ def pretrain_cursor_imitation(
         for param in module.parameters():
             param.requires_grad = True
 
+    optimizer = optim.Adam(
+        filter(lambda p: p.requires_grad, agent.parameters()), lr=lr
+    )
+
+    # ── Checkpoint manager & resume ───────────────────────────────────
+    ckpt_mgr: CheckpointManager | None = None
+    start_epoch = 0
+    history: Dict[str, List[float]] = {
+        "tool_losses":     [],
+        "cursor_losses":   [],
+        "tool_accuracies": [],
+    }
+
+    if checkpoint_dir is not None:
+        ckpt_mgr = CheckpointManager(checkpoint_dir=checkpoint_dir, config=config)
+        # Find the highest completed epoch checkpoint
+        import re
+        epoch_tags = []
+        for pt in ckpt_mgr.list_checkpoints():
+            m = re.match(r"cursor_pretrain_epoch_(\d+)\.pt$", pt.name)
+            if m:
+                epoch_tags.append(int(m.group(1)))
+        if epoch_tags:
+            last_epoch = max(epoch_tags)
+            tag = f"cursor_pretrain_epoch_{last_epoch}"
+            meta = ckpt_mgr.load(agent, optimizer, tag=tag, device=device)
+            start_epoch = last_epoch  # resume from NEXT epoch
+            history = meta.get("extra", {}).get("history", history)
+            if verbose:
+                print(f"  Resuming cursor pretraining from epoch {last_epoch} "
+                      f"(checkpoint: {tag}.pt)")
+
     if verbose:
         print(f"Generating oracle dataset ({num_samples} samples)...")
 
@@ -390,9 +432,6 @@ def pretrain_cursor_imitation(
         drop_last=False, num_workers=0,
     )
 
-    optimizer = optim.Adam(
-        filter(lambda p: p.requires_grad, agent.parameters()), lr=lr
-    )
     tool_criterion   = nn.CrossEntropyLoss()
     cursor_criterion = nn.CrossEntropyLoss()
 
@@ -400,14 +439,13 @@ def pretrain_cursor_imitation(
     render_w = config["canvas"]["render_width"]
     num_cursor_classes = render_h * render_w  # 65536 for 256x256
 
-    history: Dict[str, List[float]] = {
-        "tool_losses":     [],
-        "cursor_losses":   [],
-        "tool_accuracies": [],
-    }
+    if start_epoch >= num_epochs:
+        if verbose:
+            print(f"  All {num_epochs} epochs already completed — nothing to do.")
+        return history
 
     agent.train()
-    for epoch in range(num_epochs):
+    for epoch in range(start_epoch, num_epochs):
         total_tool_loss   = 0.0
         total_cursor_loss = 0.0
         correct_tool      = 0
@@ -467,6 +505,31 @@ def pretrain_cursor_imitation(
                   f"tool_loss {avg_tool_loss:.4f} | "
                   f"cursor_loss {avg_cursor_loss:.4f} | "
                   f"tool_acc {tool_acc:.3f}")
+
+        # ── Save epoch checkpoint ─────────────────────────────────────
+        if ckpt_mgr is not None:
+            epoch_tag = f"cursor_pretrain_epoch_{epoch + 1}"
+            ckpt_mgr.save(
+                agent, optimizer,
+                step=epoch + 1, episode=0,
+                tag=epoch_tag,
+                extra={"history": history, "num_epochs": num_epochs,
+                       "num_samples": num_samples, "dataset_seed": dataset_seed},
+            )
+            # Also keep a rolling 'latest' tag for quick resume
+            ckpt_mgr.save(
+                agent, optimizer,
+                step=epoch + 1, episode=0,
+                tag="cursor_pretrain_latest",
+                extra={"history": history, "num_epochs": num_epochs,
+                       "num_samples": num_samples, "dataset_seed": dataset_seed},
+            )
+            # Remove the previous epoch's checkpoint to save disk space
+            if epoch > start_epoch:
+                prev_tag = f"cursor_pretrain_epoch_{epoch}"
+                prev_path = ckpt_mgr.checkpoint_dir / f"{prev_tag}.pt"
+                if prev_path.exists():
+                    prev_path.unlink()
 
     # Unfreeze text encoder for subsequent RL training
     for param in agent.text.parameters():

@@ -14,7 +14,7 @@ from typing import Any, Dict
 import numpy as np
 
 from cadfire.engine.cad_engine import CADEngine
-from cadfire.engine.geometry import CircleEntity, RectangleEntity
+from cadfire.engine.geometry import CircleEntity, RectangleEntity, PolylineEntity
 from cadfire.tasks.base import BaseTask, UTILITY_TOOLS
 from cadfire.tasks.registry import register_task
 
@@ -110,7 +110,14 @@ class RotateShapeTask(BaseTask):
         self._color = int(self.rng.randint(0, 8))
 
         corner = self._center - np.array([self._w/2, self._h/2])
-        e = RectangleEntity(corner=corner, width=self._w, height=self._h, color_index=self._color)
+        # Use PolylineEntity because RectangleEntity resets to axis-aligned bbox on rotation
+        pts = np.array([
+            corner,
+            corner + [self._w, 0],
+            corner + [self._w, self._h],
+            corner + [0, self._h]
+        ])
+        e = PolylineEntity(points=pts, closed=True, color_index=self._color)
         engine.add_entity(e, save_undo=False)
         self._entity_id = e.id
 

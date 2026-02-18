@@ -100,7 +100,7 @@ class PPOTrainer:
         # Curriculum: start with easy tasks, increase when performance gates
         self.max_difficulty = 2.0
         self.difficulty_step = 0.5
-        self.curriculum_reward_threshold = t.get("curriculum_reward_threshold", 2.0)
+        self.curriculum_reward_threshold = t.get("curriculum_reward_threshold", 5.0)
         self.curriculum_window = 100  # episodes to average over
 
         # Entropy annealing: high initial exploration, decay over time
@@ -198,15 +198,6 @@ class PPOTrainer:
                     episode_reward = 0.0
                     episode_length = 0
 
-                # Performance-gated curriculum
-                if (len(self._episode_rewards) >= self.curriculum_window
-                        and self.max_difficulty < 10.0):
-                    recent_avg = np.mean(self._episode_rewards[-self.curriculum_window:])
-                    if recent_avg > self.curriculum_reward_threshold:
-                        self.max_difficulty = min(10.0, self.max_difficulty + self.difficulty_step)
-                        print(f"  [Curriculum] avg_reward={recent_avg:.3f} > threshold "
-                              f" → difficulty {self.max_difficulty:.1f}")
-
                 # Entropy annealing
                 frac = min(1.0, self.global_step / max(self.entropy_anneal_steps, 1))
                 self.entropy_coeff = (self.entropy_coeff_start
@@ -221,6 +212,15 @@ class PPOTrainer:
 
             # PPO update
             metrics = self._ppo_update()
+
+            # Performance-gated curriculum (once per rollout, not per step)
+            if (len(self._episode_rewards) >= self.curriculum_window
+                    and self.max_difficulty < 10.0):
+                recent_avg = np.mean(self._episode_rewards[-self.curriculum_window:])
+                if recent_avg > self.curriculum_reward_threshold:
+                    self.max_difficulty = min(10.0, self.max_difficulty + self.difficulty_step)
+                    print(f"  [Curriculum] avg_reward={recent_avg:.3f} > threshold "
+                          f" → difficulty {self.max_difficulty:.1f}")
 
             # Logging
             if self.global_step % self.log_interval < self.rollout_steps:

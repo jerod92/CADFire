@@ -12,7 +12,7 @@ import numpy as np
 
 from cadfire.engine.cad_engine import CADEngine
 from cadfire.engine.geometry import CircleEntity, RectangleEntity, LineEntity
-from cadfire.tasks.base import BaseTask
+from cadfire.tasks.base import BaseTask, UTILITY_TOOLS
 from cadfire.tasks.registry import register_task
 
 
@@ -22,6 +22,9 @@ class FitViewTask(BaseTask):
     task_name = "fit_view"
     task_category = "view"
     difficulty = 1.0
+
+    def allowed_tools(self):
+        return UTILITY_TOOLS + ["FIT_VIEW", "ZOOM_EXTENTS"]
 
     def generate_prompt_variants(self):
         return [
@@ -64,6 +67,9 @@ class ZoomToCenterTask(BaseTask):
     task_name = "zoom_to_center"
     task_category = "view"
     difficulty = 2.0
+
+    def allowed_tools(self):
+        return UTILITY_TOOLS + ["ZOOM_IN", "ZOOM_OUT", "PAN", "FIT_VIEW"]
 
     def generate_prompt_variants(self):
         return [

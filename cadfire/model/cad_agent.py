@@ -121,7 +121,8 @@ class CADAgent(nn.Module):
         }
 
     def act(self, obs: Dict[str, torch.Tensor],
-            deterministic: bool = False) -> Dict[str, Any]:
+            deterministic: bool = False,
+            tool_mask: torch.Tensor | None = None) -> Dict[str, Any]:
         """
         Sample an action from the policy.
 
@@ -140,6 +141,9 @@ class CADAgent(nn.Module):
 
         # Tool selection
         tool_logits = out["tool_logits"]  # (B, num_tools)
+        # Apply tool mask: set logits of disallowed tools to -inf
+        if tool_mask is not None:
+            tool_logits = tool_logits + (1.0 - tool_mask) * (-1e8)
         tool_dist = Categorical(logits=tool_logits)
         if deterministic:
             tool_id = tool_logits.argmax(dim=-1)
@@ -177,7 +181,8 @@ class CADAgent(nn.Module):
 
     def evaluate_actions(self, obs: Dict[str, torch.Tensor],
                          tool_ids: torch.Tensor,
-                         cursor_flat_ids: torch.Tensor) -> Dict[str, torch.Tensor]:
+                         cursor_flat_ids: torch.Tensor,
+                         tool_mask: torch.Tensor | None = None) -> Dict[str, torch.Tensor]:
         """
         Evaluate log probabilities and entropy for given actions.
         Used during PPO training to compute the ratio pi(a|s)/pi_old(a|s).
@@ -185,7 +190,10 @@ class CADAgent(nn.Module):
         out = self.forward(obs)
 
         # Tool
-        tool_dist = Categorical(logits=out["tool_logits"])
+        tool_logits = out["tool_logits"]
+        if tool_mask is not None:
+            tool_logits = tool_logits + (1.0 - tool_mask) * (-1e8)
+        tool_dist = Categorical(logits=tool_logits)
         tool_log_prob = tool_dist.log_prob(tool_ids)
         tool_entropy = tool_dist.entropy()
 

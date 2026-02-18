@@ -15,7 +15,7 @@ import numpy as np
 
 from cadfire.engine.cad_engine import CADEngine
 from cadfire.engine.geometry import CircleEntity, RectangleEntity
-from cadfire.tasks.base import BaseTask
+from cadfire.tasks.base import BaseTask, UTILITY_TOOLS
 from cadfire.tasks.registry import register_task
 
 
@@ -28,6 +28,9 @@ class MoveShapeTask(BaseTask):
     task_name = "move_shape"
     task_category = "modify"
     difficulty = 3.0
+
+    def allowed_tools(self):
+        return UTILITY_TOOLS + ["SELECT", "MOVE"]
 
     def generate_prompt_variants(self):
         return [
@@ -88,6 +91,9 @@ class RotateShapeTask(BaseTask):
     task_category = "modify"
     difficulty = 4.0
 
+    def allowed_tools(self):
+        return UTILITY_TOOLS + ["SELECT", "ROTATE"]
+
     def generate_prompt_variants(self):
         return [
             "Rotate the {shape} by {angle:.0f} degrees",
@@ -136,6 +142,9 @@ class ScaleShapeTask(BaseTask):
     task_category = "modify"
     difficulty = 3.5
 
+    def allowed_tools(self):
+        return UTILITY_TOOLS + ["SELECT", "SCALE"]
+
     def generate_prompt_variants(self):
         return [
             "Scale the {shape} by a factor of {factor:.1f}",
@@ -179,6 +188,9 @@ class CopyShapeTask(BaseTask):
     task_name = "copy_shape"
     task_category = "modify"
     difficulty = 3.5
+
+    def allowed_tools(self):
+        return UTILITY_TOOLS + ["SELECT", "COPY"]
 
     def generate_prompt_variants(self):
         return [
@@ -229,6 +241,9 @@ class ChangeLayerTask(BaseTask):
     task_name = "change_layer"
     task_category = "property"
     difficulty = 2.0
+
+    def allowed_tools(self):
+        return UTILITY_TOOLS + ["SELECT", "CHANGE_LAYER"]
 
     def generate_prompt_variants(self):
         return [

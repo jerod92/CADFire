@@ -32,7 +32,7 @@ def run_training(
     device: str | None = None,
     max_difficulty: float | None = None,
     config_path: str | None = None,
-    checkpoint_dir: str = "checkpoints",
+    checkpoint_dir: str = "checkpoints_1",
     task_weights: dict | None = None,
     callback=None,
 ):
@@ -83,7 +83,7 @@ def main():
     parser.add_argument("--difficulty", type=float, default=None,
                         help="Starting difficulty cap")
     parser.add_argument("--config", type=str, default=None, help="Config path")
-    parser.add_argument("--checkpoint-dir", type=str, default="checkpoints",
+    parser.add_argument("--checkpoint-dir", type=str, default="checkpoints_1",
                         help="Checkpoint directory")
     args = parser.parse_args()
 

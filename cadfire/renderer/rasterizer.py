@@ -117,6 +117,10 @@ class Renderer:
 
         # World -> pixel coords
         ndc = engine.viewport.world_to_ndc(pts_world)
+        valid = np.isfinite(ndc).all(axis=1)
+        if not valid.any():
+            return
+        ndc = ndc[valid]
         px = (ndc[:, 0] * self.W).astype(np.int32)
         py = ((1.0 - ndc[:, 1]) * self.H).astype(np.int32)  # flip y
 
@@ -207,6 +211,10 @@ class Renderer:
             if len(pts_world) == 0:
                 continue
             ndc = engine.viewport.world_to_ndc(pts_world)
+            valid = np.isfinite(ndc).all(axis=1)
+            if not valid.any():
+                continue
+            ndc = ndc[valid]
             px = (ndc[:, 0] * self.W).astype(np.int32)
             py = ((1.0 - ndc[:, 1]) * self.H).astype(np.int32)
             for i in range(len(px) - 1):
@@ -253,6 +261,10 @@ class Renderer:
             if len(pts_world) == 0:
                 continue
             ndc = engine.viewport.world_to_ndc(pts_world)
+            valid = np.isfinite(ndc).all(axis=1)
+            if not valid.any():
+                continue
+            ndc = ndc[valid]
             px = (ndc[:, 0] * self.W).astype(np.int32)
             py = ((1.0 - ndc[:, 1]) * self.H).astype(np.int32)
             for i in range(len(px) - 1):

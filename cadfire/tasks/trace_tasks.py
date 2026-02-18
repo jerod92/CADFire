@@ -13,7 +13,7 @@ import numpy as np
 
 from cadfire.engine.cad_engine import CADEngine
 from cadfire.engine.geometry import LineEntity, CircleEntity, PolylineEntity
-from cadfire.tasks.base import BaseTask
+from cadfire.tasks.base import BaseTask, UTILITY_TOOLS
 from cadfire.tasks.registry import register_task
 
 
@@ -60,6 +60,9 @@ class TraceLineTask(BaseTask):
     task_category = "trace"
     difficulty = 2.0
 
+    def allowed_tools(self):
+        return UTILITY_TOOLS + ["LINE"]
+
     def generate_prompt_variants(self):
         return [
             "Trace the line shown in the reference image",
@@ -94,6 +97,9 @@ class TraceCircleTask(BaseTask):
     task_category = "trace"
     difficulty = 2.5
 
+    def allowed_tools(self):
+        return UTILITY_TOOLS + ["CIRCLE"]
+
     def generate_prompt_variants(self):
         return [
             "Trace the circle shown in the reference",
@@ -126,6 +132,9 @@ class TraceCompositeTask(BaseTask):
     task_name = "trace_composite"
     task_category = "trace"
     difficulty = 5.0
+
+    def allowed_tools(self):
+        return UTILITY_TOOLS + ["LINE", "CIRCLE", "POLYLINE"]
 
     def generate_prompt_variants(self):
         return [

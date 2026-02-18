@@ -25,6 +25,9 @@ import numpy as np
 
 from cadfire.engine.cad_engine import CADEngine
 
+# Tools every task should always allow
+UTILITY_TOOLS = ["NOOP", "CONFIRM", "CANCEL", "UNDO", "REDO"]
+
 
 class BaseTask(abc.ABC):
     """
@@ -83,6 +86,15 @@ class BaseTask(abc.ABC):
         Default returns a single template.
         """
         return [f"Complete the {self.task_name} task."]
+
+    def allowed_tools(self) -> Optional[List[str]]:
+        """Return list of tool names the agent may use for this task.
+
+        Return ``None`` to allow all tools (default).  Subclasses should
+        override to restrict the action space for faster learning.
+        The returned list is automatically unioned with ``UTILITY_TOOLS``.
+        """
+        return None
 
     def sample_prompt(self) -> str:
         """Sample a random prompt variant."""

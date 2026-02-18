@@ -20,7 +20,7 @@ from cadfire.engine.geometry import (
     LineEntity, CircleEntity, RectangleEntity, ArcEntity,
     PolygonEntity, EllipseEntity, PolylineEntity,
 )
-from cadfire.tasks.base import BaseTask
+from cadfire.tasks.base import BaseTask, UTILITY_TOOLS
 from cadfire.tasks.registry import register_task
 
 
@@ -40,6 +40,9 @@ class DrawLineTask(BaseTask):
     task_name = "draw_line"
     task_category = "draw"
     difficulty = 1.0
+
+    def allowed_tools(self):
+        return UTILITY_TOOLS + ["LINE"]
 
     def generate_prompt_variants(self):
         return [
@@ -67,14 +70,25 @@ class DrawLineTask(BaseTask):
         return {"prompt": prompt, "target_entities": [self._target]}
 
     def compute_reward(self, engine: CADEngine, action: Dict, step: int) -> Dict:
+        # Dense: reward tool selection
+        tool_name = action.get("tool_name", "")
+        tool_bonus = 0.05 if tool_name == "LINE" else 0.0
+
+        # Dense: reward pending-point progress toward target
+        pending_bonus = 0.0
+        if engine.pending_points and engine.active_tool == "LINE":
+            mid = (self._start + self._end) / 2.0
+            dist = np.linalg.norm(engine.pending_points[-1] - mid)
+            pending_bonus = max(0.0, 0.02 * (1.0 - dist / 1000.0))
+
         lines = [e for e in engine.entities if e.entity_type == "LINE"]
         if not lines:
-            return {"reward": -0.01, "terminated": False, "info": {"iou": 0}}
+            return {"reward": -0.01 + tool_bonus + pending_bonus,
+                    "terminated": False, "info": {"iou": 0}}
 
         iou = self.iou_reward(lines, [self._target])
-        # Bonus for having exactly one line
         count_bonus = 0.1 if len(lines) == 1 else -0.05 * abs(len(lines) - 1)
-        reward = iou + count_bonus
+        reward = iou + count_bonus + tool_bonus
         terminated = iou > 0.8
 
         return {"reward": reward, "terminated": terminated,
@@ -86,6 +100,9 @@ class DrawCircleTask(BaseTask):
     task_name = "draw_circle"
     task_category = "draw"
     difficulty = 1.0
+
+    def allowed_tools(self):
+        return UTILITY_TOOLS + ["CIRCLE"]
 
     def generate_prompt_variants(self):
         return [
@@ -112,13 +129,23 @@ class DrawCircleTask(BaseTask):
         return {"prompt": prompt, "target_entities": [self._target]}
 
     def compute_reward(self, engine: CADEngine, action: Dict, step: int) -> Dict:
+        tool_name = action.get("tool_name", "")
+        tool_bonus = 0.05 if tool_name == "CIRCLE" else 0.0
+
+        # Dense: reward clicking near the target center
+        pending_bonus = 0.0
+        if engine.pending_points and engine.active_tool == "CIRCLE":
+            dist = np.linalg.norm(engine.pending_points[-1] - self._center)
+            pending_bonus = max(0.0, 0.02 * (1.0 - dist / 500.0))
+
         circles = [e for e in engine.entities if e.entity_type == "CIRCLE"]
         if not circles:
-            return {"reward": -0.01, "terminated": False, "info": {"iou": 0}}
+            return {"reward": -0.01 + tool_bonus + pending_bonus,
+                    "terminated": False, "info": {"iou": 0}}
 
         iou = self.iou_reward(circles, [self._target])
         count_bonus = 0.1 if len(circles) == 1 else -0.05 * abs(len(circles) - 1)
-        reward = iou + count_bonus
+        reward = iou + count_bonus + tool_bonus
         terminated = iou > 0.75
 
         return {"reward": reward, "terminated": terminated,
@@ -130,6 +157,9 @@ class DrawRectangleTask(BaseTask):
     task_name = "draw_rectangle"
     task_category = "draw"
     difficulty = 1.5
+
+    def allowed_tools(self):
+        return UTILITY_TOOLS + ["RECTANGLE"]
 
     def generate_prompt_variants(self):
         return [
@@ -157,12 +187,15 @@ class DrawRectangleTask(BaseTask):
         return {"prompt": prompt, "target_entities": [self._target]}
 
     def compute_reward(self, engine: CADEngine, action: Dict, step: int) -> Dict:
+        tool_name = action.get("tool_name", "")
+        tool_bonus = 0.05 if tool_name == "RECTANGLE" else 0.0
+
         rects = [e for e in engine.entities if e.entity_type == "RECTANGLE"]
         if not rects:
-            return {"reward": -0.01, "terminated": False, "info": {"iou": 0}}
+            return {"reward": -0.01 + tool_bonus, "terminated": False, "info": {"iou": 0}}
 
         iou = self.iou_reward(rects, [self._target])
-        reward = iou + (0.1 if len(rects) == 1 else -0.05 * abs(len(rects) - 1))
+        reward = iou + (0.1 if len(rects) == 1 else -0.05 * abs(len(rects) - 1)) + tool_bonus
         return {"reward": reward, "terminated": iou > 0.75,
                 "info": {"iou": iou}}
 
@@ -172,6 +205,9 @@ class DrawPolygonTask(BaseTask):
     task_name = "draw_polygon"
     task_category = "draw"
     difficulty = 2.0
+
+    def allowed_tools(self):
+        return UTILITY_TOOLS + ["POLYGON"]
 
     def generate_prompt_variants(self):
         return [
@@ -199,11 +235,12 @@ class DrawPolygonTask(BaseTask):
         return {"prompt": prompt, "target_entities": [self._target]}
 
     def compute_reward(self, engine: CADEngine, action: Dict, step: int) -> Dict:
+        tool_bonus = 0.05 if action.get("tool_name") == "POLYGON" else 0.0
         polys = [e for e in engine.entities if e.entity_type == "POLYGON"]
         if not polys:
-            return {"reward": -0.01, "terminated": False, "info": {"iou": 0}}
+            return {"reward": -0.01 + tool_bonus, "terminated": False, "info": {"iou": 0}}
         iou = self.iou_reward(polys, [self._target])
-        reward = iou + (0.1 if len(polys) == 1 else -0.05)
+        reward = iou + (0.1 if len(polys) == 1 else -0.05) + tool_bonus
         return {"reward": reward, "terminated": iou > 0.7, "info": {"iou": iou}}
 
 
@@ -212,6 +249,9 @@ class DrawEllipseTask(BaseTask):
     task_name = "draw_ellipse"
     task_category = "draw"
     difficulty = 2.5
+
+    def allowed_tools(self):
+        return UTILITY_TOOLS + ["ELLIPSE"]
 
     def generate_prompt_variants(self):
         return [
@@ -238,11 +278,12 @@ class DrawEllipseTask(BaseTask):
         return {"prompt": prompt, "target_entities": [self._target]}
 
     def compute_reward(self, engine: CADEngine, action: Dict, step: int) -> Dict:
+        tool_bonus = 0.05 if action.get("tool_name") == "ELLIPSE" else 0.0
         ells = [e for e in engine.entities if e.entity_type == "ELLIPSE"]
         if not ells:
-            return {"reward": -0.01, "terminated": False, "info": {"iou": 0}}
+            return {"reward": -0.01 + tool_bonus, "terminated": False, "info": {"iou": 0}}
         iou = self.iou_reward(ells, [self._target])
-        reward = iou + (0.1 if len(ells) == 1 else -0.05)
+        reward = iou + (0.1 if len(ells) == 1 else -0.05) + tool_bonus
         return {"reward": reward, "terminated": iou > 0.7, "info": {"iou": iou}}
 
 
@@ -251,6 +292,9 @@ class DrawArcTask(BaseTask):
     task_name = "draw_arc"
     task_category = "draw"
     difficulty = 3.0
+
+    def allowed_tools(self):
+        return UTILITY_TOOLS + ["ARC"]
 
     def generate_prompt_variants(self):
         return [
@@ -280,11 +324,12 @@ class DrawArcTask(BaseTask):
         return {"prompt": prompt, "target_entities": [self._target]}
 
     def compute_reward(self, engine: CADEngine, action: Dict, step: int) -> Dict:
+        tool_bonus = 0.05 if action.get("tool_name") == "ARC" else 0.0
         arcs = [e for e in engine.entities if e.entity_type == "ARC"]
         if not arcs:
-            return {"reward": -0.01, "terminated": False, "info": {"iou": 0}}
+            return {"reward": -0.01 + tool_bonus, "terminated": False, "info": {"iou": 0}}
         iou = self.iou_reward(arcs, [self._target])
-        reward = iou + (0.1 if len(arcs) == 1 else -0.05)
+        reward = iou + (0.1 if len(arcs) == 1 else -0.05) + tool_bonus
         return {"reward": reward, "terminated": iou > 0.65, "info": {"iou": iou}}
 
 
@@ -294,6 +339,9 @@ class DrawMultiPrimitiveTask(BaseTask):
     task_name = "draw_multi_primitive"
     task_category = "draw"
     difficulty = 4.0
+
+    def allowed_tools(self):
+        return UTILITY_TOOLS + ["CIRCLE", "RECTANGLE", "LINE"]
 
     def generate_prompt_variants(self):
         return [

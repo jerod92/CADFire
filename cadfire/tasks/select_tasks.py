@@ -23,7 +23,7 @@ from cadfire.engine.geometry import (
     CircleEntity, RectangleEntity, LineEntity, EllipseEntity,
     PolygonEntity, ArcEntity, Entity,
 )
-from cadfire.tasks.base import BaseTask
+from cadfire.tasks.base import BaseTask, UTILITY_TOOLS
 from cadfire.tasks.registry import register_task
 
 
@@ -95,6 +95,9 @@ class SelectShapeTask(BaseTask):
     task_category = "select"
     difficulty = 1.5
 
+    def allowed_tools(self):
+        return UTILITY_TOOLS + ["SELECT", "DESELECT"]
+
     def generate_prompt_variants(self):
         return [
             "Select the {shape} at ({x:.0f},{y:.0f})",
@@ -136,6 +139,9 @@ class SelectByColorTask(BaseTask):
     task_name = "select_by_color"
     task_category = "select"
     difficulty = 3.0
+
+    def allowed_tools(self):
+        return UTILITY_TOOLS + ["SELECT", "MULTISELECT", "DESELECT"]
 
     def generate_prompt_variants(self):
         return [
@@ -190,6 +196,9 @@ class EraseSelectionTask(BaseTask):
     task_name = "erase_selection"
     task_category = "modify"
     difficulty = 2.5
+
+    def allowed_tools(self):
+        return UTILITY_TOOLS + ["SELECT", "ERASE"]
 
     def generate_prompt_variants(self):
         return [

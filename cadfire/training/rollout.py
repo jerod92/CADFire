@@ -32,7 +32,8 @@ class RolloutBuffer:
     """
 
     def __init__(self, buffer_size: int, image_shape: Tuple[int, ...],
-                 text_len: int, state_dim: int, device: str = "cpu"):
+                 text_len: int, state_dim: int, num_tools: int = 56,
+                 device: str = "cpu"):
         self.buffer_size = buffer_size
         self.device = device
         self.ptr = 0
@@ -50,6 +51,7 @@ class RolloutBuffer:
         self.values = np.zeros(buffer_size, dtype=np.float32)
         self.rewards = np.zeros(buffer_size, dtype=np.float32)
         self.dones = np.zeros(buffer_size, dtype=np.float32)
+        self.tool_masks = np.ones((buffer_size, num_tools), dtype=np.float32)
 
         # Computed during finalize
         self.advantages = np.zeros(buffer_size, dtype=np.float32)
@@ -63,6 +65,7 @@ class RolloutBuffer:
         self.images[idx] = obs["image"]
         self.text_ids[idx] = obs["text_ids"]
         self.state_vecs[idx] = obs["state_vec"]
+        self.tool_masks[idx] = obs.get("tool_mask", np.ones(self.tool_masks.shape[1], dtype=np.float32))
         self.tool_ids[idx] = tool_id
         self.cursor_flat_ids[idx] = cursor_flat_id
         self.params[idx] = param
@@ -112,6 +115,7 @@ class RolloutBuffer:
                 "images": torch.tensor(self.images[batch_idx], device=device),
                 "text_ids": torch.tensor(self.text_ids[batch_idx], dtype=torch.long, device=device),
                 "state_vecs": torch.tensor(self.state_vecs[batch_idx], device=device),
+                "tool_masks": torch.tensor(self.tool_masks[batch_idx], device=device),
                 "tool_ids": torch.tensor(self.tool_ids[batch_idx], dtype=torch.long, device=device),
                 "cursor_flat_ids": torch.tensor(self.cursor_flat_ids[batch_idx], dtype=torch.long, device=device),
                 "old_tool_log_probs": torch.tensor(self.tool_log_probs[batch_idx], device=device),

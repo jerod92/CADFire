@@ -61,6 +61,7 @@ class CADEnv:
         self._prompt_ids = None
         self._reference_image = None
         self._episode_reward = 0.0
+        self._tool_mask = np.ones(self._num_tools, dtype=np.float32)  # all allowed by default
 
     # ─── Spaces info ────────────────────────────────────────────────────
 
@@ -96,9 +97,21 @@ class CADEnv:
             setup_info = task.setup(self.engine)
             self._prompt_text = setup_info.get("prompt", "")
             self._reference_image = setup_info.get("reference_image", None)
+
+            # Build tool mask from task
+            allowed = task.allowed_tools()
+            if allowed is not None:
+                self._tool_mask = np.zeros(self._num_tools, dtype=np.float32)
+                for name in allowed:
+                    idx = self._tool_to_idx.get(name)
+                    if idx is not None:
+                        self._tool_mask[idx] = 1.0
+            else:
+                self._tool_mask = np.ones(self._num_tools, dtype=np.float32)
         else:
             self._prompt_text = ""
             self._reference_image = None
+            self._tool_mask = np.ones(self._num_tools, dtype=np.float32)
 
         self._prompt_ids = np.array(
             self.tokenizer.encode_padded(self._prompt_text), dtype=np.int32
@@ -106,6 +119,9 @@ class CADEnv:
 
         obs = self._build_obs()
         info = {"prompt": self._prompt_text, "step": 0}
+        if task is not None:
+            # Merge all setup info (including targets/metadata) into info
+            info.update(setup_info)
         return obs, info
 
     def step(self, action: Dict[str, Any]) -> Tuple[Dict[str, np.ndarray], float, bool, bool, Dict]:
@@ -147,6 +163,8 @@ class CADEnv:
         info = {"step": self._step_count, "tool": tool_name}
 
         if self._task is not None:
+            # Inject tool_name so compute_reward can give dense bonuses
+            action["tool_name"] = tool_name
             reward_info = self._task.compute_reward(self.engine, action, self._step_count)
             reward = reward_info.get("reward", 0.0)
             terminated = reward_info.get("terminated", False)
@@ -417,6 +435,7 @@ class CADEnv:
             "image": image,
             "text_ids": self._prompt_ids,
             "state_vec": state_vec,
+            "tool_mask": self._tool_mask,
         }
 
     def _build_state_vector(self) -> np.ndarray:

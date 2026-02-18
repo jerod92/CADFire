@@ -68,12 +68,13 @@ class PPOTrainer:
             image_shape=self.env.image_shape,
             text_len=self.config["model"]["text_max_len"],
             state_dim=self.config["model"]["state_dim"],
+            num_tools=self.env.num_tools,
             device=self.device,
         )
 
         # Checkpoint manager
         self.ckpt = CheckpointManager(
-            checkpoint_dir=t.get("checkpoint_dir", "checkpoints"),
+            checkpoint_dir=t.get("checkpoint_dir", "checkpoints_1"),
             config=self.config,
         )
 
@@ -96,10 +97,16 @@ class PPOTrainer:
         self._episode_rewards: List[float] = []
         self._episode_lengths: List[int] = []
 
-        # Curriculum: start with easy tasks, increase difficulty
+        # Curriculum: start with easy tasks, increase when performance gates
         self.max_difficulty = 2.0
-        self.difficulty_increase_interval = 5000  # steps between difficulty bumps
         self.difficulty_step = 0.5
+        self.curriculum_reward_threshold = t.get("curriculum_reward_threshold", 2.0)
+        self.curriculum_window = 100  # episodes to average over
+
+        # Entropy annealing: high initial exploration, decay over time
+        self.entropy_coeff_start = t.get("entropy_coeff_start", 0.05)
+        self.entropy_coeff_end = t.get("entropy_coeff_end", 0.005)
+        self.entropy_anneal_steps = t.get("entropy_anneal_steps", 200_000)
 
     def train(self, num_steps: int = 100000,
               resume: bool = True,
@@ -147,8 +154,11 @@ class PPOTrainer:
                 # Convert obs to torch
                 obs_t = self._obs_to_torch(obs)
 
+                # Extract tool mask for this step
+                tool_mask_t = obs_t.get("tool_mask", None)
+
                 # Get action from policy
-                action_info = self.agent.act(obs_t)
+                action_info = self.agent.act(obs_t, tool_mask=tool_mask_t)
 
                 tool_id = action_info["tool_id"].item()
                 cursor = action_info["cursor"].cpu().numpy()[0]
@@ -188,10 +198,19 @@ class PPOTrainer:
                     episode_reward = 0.0
                     episode_length = 0
 
-                # Update curriculum
-                if (self.global_step % self.difficulty_increase_interval == 0
+                # Performance-gated curriculum
+                if (len(self._episode_rewards) >= self.curriculum_window
                         and self.max_difficulty < 10.0):
-                    self.max_difficulty = min(10.0, self.max_difficulty + self.difficulty_step)
+                    recent_avg = np.mean(self._episode_rewards[-self.curriculum_window:])
+                    if recent_avg > self.curriculum_reward_threshold:
+                        self.max_difficulty = min(10.0, self.max_difficulty + self.difficulty_step)
+                        print(f"  [Curriculum] avg_reward={recent_avg:.3f} > threshold "
+                              f" → difficulty {self.max_difficulty:.1f}")
+
+                # Entropy annealing
+                frac = min(1.0, self.global_step / max(self.entropy_anneal_steps, 1))
+                self.entropy_coeff = (self.entropy_coeff_start
+                                      + frac * (self.entropy_coeff_end - self.entropy_coeff_start))
 
             # Compute GAE
             with torch.no_grad():
@@ -269,11 +288,12 @@ class PPOTrainer:
                     "state_vec": batch["state_vecs"],
                 }
 
-                # Evaluate current policy on old actions
+                # Evaluate current policy on old actions (with tool mask)
                 eval_out = self.agent.evaluate_actions(
                     obs_batch,
                     batch["tool_ids"],
                     batch["cursor_flat_ids"],
+                    tool_mask=batch["tool_masks"],
                 )
 
                 # Combined log probability
@@ -334,8 +354,11 @@ class PPOTrainer:
 
     def _obs_to_torch(self, obs: Dict[str, np.ndarray]) -> Dict[str, torch.Tensor]:
         """Convert numpy observation dict to batched torch tensors."""
-        return {
+        result = {
             "image": torch.tensor(obs["image"], device=self.device).unsqueeze(0),
             "text_ids": torch.tensor(obs["text_ids"], dtype=torch.long, device=self.device).unsqueeze(0),
             "state_vec": torch.tensor(obs["state_vec"], device=self.device).unsqueeze(0),
         }
+        if "tool_mask" in obs:
+            result["tool_mask"] = torch.tensor(obs["tool_mask"], device=self.device).unsqueeze(0)
+        return result

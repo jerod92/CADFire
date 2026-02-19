@@ -1,41 +1,54 @@
 #!/usr/bin/env python3
 """
-CADFire Training Script.
+CADFire Training Script  –  Four-Phase Pipeline.
 
 Can be run directly or imported into a Jupyter notebook.
 Designed for vast.ai GPU instances.
 
-Three-Phase Pretraining Pipeline
-─────────────────────────────────
-  Phase 1 – Tool classifier  (text → tool, no vision)
-  Phase 2 – Semantic cursor  (vision + text → SELECT/MULTISELECT + cursor mask)
-  Phase 3 – PPO RL           (full agent, curriculum learning)
+Four-Phase Pretraining Pipeline
+────────────────────────────────
+  Phase 1 – Tool classifier      (text → tool, no vision)
+  Phase 2 – Semantic cursor      (vision + text → tool + cursor, single-step,
+                                   ALL parameters unfrozen including text encoder)
+  Phase 3 – Teacher forcing      (vision + text → tool + cursor, 2–9-step
+                                   trajectories, oracle advances environment)
+  [After Phase 3] → diagnostic GIFs to verify polygon-tracing capability
+  Phase 4 – PPO RL               (full agent, curriculum learning)
 
-Phases 1 and 2 are supervised warm-starts that prevent catastrophic forgetting
-when Phase-3 RL begins.  Each phase can be run independently.  Existing
-checkpoints are loaded before each phase so weights are always preserved.
+Phases 1–3 are supervised warm-starts.  Phases progress in difficulty:
+  1: learn tool names from text
+  2: learn to identify & point at objects (single-step)
+  3: learn to sequence actions (multi-step, teacher-forced)
+  4: learn from sparse reward signals (RL)
+
+Each phase can be run independently.  Existing checkpoints are loaded
+before each phase so weights always accumulate.
 
 Usage
 ─────
     # Full pipeline from scratch:
-    python train.py --pretrain-tool --pretrain-semantic --steps 100000
+    python train.py --pretrain-tool --pretrain-semantic --pretrain-teacher \\
+                    --generate-gifs --steps 100000
 
-    # Resume PPO from existing checkpoint (skip pretraining):
+    # Phase 2 + Phase 3 + PPO (skip Phase 1):
+    python train.py --pretrain-semantic --pretrain-teacher --steps 100000 --resume
+
+    # Phase 3 (teacher forcing) only, then GIFs:
+    python train.py --pretrain-teacher --generate-gifs --steps 0
+
+    # PPO only (resume from checkpoint):
     python train.py --steps 500000 --resume
-
-    # Phase 2 only (semantic cursor), then PPO:
-    python train.py --pretrain-semantic --steps 100000 --resume
-
-    # PPO only:
-    python train.py --steps 100000
 
     # Phase 1 only (no RL):
     python train.py --pretrain-tool --steps 0
 
 From notebook:
-    from train import run_training, run_pretrain_tool, run_pretrain_semantic
+    from train import (run_pretrain_tool, run_pretrain_semantic,
+                       run_pretrain_teacher, run_diagnostics, run_training)
     agent = run_pretrain_tool(num_epochs=30)
     agent = run_pretrain_semantic(agent=agent, num_samples=20000, num_epochs=20)
+    agent = run_pretrain_teacher(agent=agent, num_trajectories=5000, num_epochs=15)
+    run_diagnostics(agent=agent, n_episodes=6, output_dir="diagnostics/")
     run_training(num_steps=100000, resume=True)
 """
 
@@ -56,7 +69,7 @@ def run_pretrain_tool(
     num_epochs: int = 30,
     lr: float = 1e-3,
     batch_size: int = 64,
-    device: str | None = None,
+    device=None,
     checkpoint_dir: str = "checkpoints_1",
     verbose: bool = True,
 ):
@@ -143,41 +156,22 @@ def run_pretrain_semantic(
     lr: float = 3e-4,
     batch_size: int = 32,
     sigma: float = 12.0,
-    multi_ratio: float = 0.4,
     cursor_weight: float = 1.0,
     num_workers: int = 0,
-    device: str | None = None,
+    device=None,
     checkpoint_dir: str = "checkpoints_1",
     verbose: bool = True,
 ):
     """
-    Phase 2: semantic cursor pretraining (SELECT + MULTISELECT, single-step).
+    Phase 2: semantic cursor pretraining (single-step, all 11 task types).
 
-    Trains vision encoder + fusion bridge + tool head + cursor head using
-    focal-BCE loss on Gaussian cursor masks.  Text encoder is frozen to
-    preserve Phase-1 weights.
+    Trains ALL model parameters (including text encoder) on one-step
+    supervised tasks covering SELECT, MULTISELECT, ERASE, PAN, ZOOM_IN,
+    ZOOM_OUT, HATCH, POLYLINE (trace next vertex), COPY, MOVE, ROTATE.
 
-    Two sample types (controlled by ``multi_ratio``):
-      • SemanticSelectTask    – "Select the <shape>" → SELECT + single-entity mask
-      • SemanticMultiSelectTask – "Select all <shape>s" → MULTISELECT + multi-entity mask
-
-    Args:
-        agent         : Existing CADAgent (reused if provided, else created).
-        config        : Config dict (defaults to config.json).
-        num_samples   : Generated samples per epoch.
-        num_epochs    : Training epochs.
-        lr            : Adam learning rate.
-        batch_size    : Mini-batch size.
-        sigma         : Gaussian blob radius (pixels) for cursor targets.
-        multi_ratio   : Fraction of MULTISELECT samples (0-1).
-        cursor_weight : Relative weight of cursor BCE vs tool CE loss.
-        num_workers   : DataLoader worker processes (0 = main process).
-        device        : 'cuda' / 'cpu' / None (auto).
-        checkpoint_dir: Where to load/save the checkpoint.
-        verbose       : Print per-epoch stats.
-
-    Returns:
-        The trained CADAgent (all weights unfrozen).
+    The text encoder is intentionally NOT frozen so the model can learn to
+    associate object names ("hexagon", "circle", etc.) with their visual
+    appearances and the tools used to interact with them.
     """
     import torch
     import torch.optim as optim
@@ -199,14 +193,14 @@ def run_pretrain_semantic(
 
     if verbose:
         print("=" * 60)
-        print("Phase 2 – Semantic Cursor Pretraining")
+        print("Phase 2 – Semantic Cursor Pretraining (all params unfrozen)")
         print(f"  Samples/epoch  : {num_samples:,}")
         print(f"  Epochs         : {num_epochs}")
         print(f"  LR             : {lr}")
         print(f"  Batch size     : {batch_size}")
         print(f"  Gaussian sigma : {sigma:.1f} px")
-        print(f"  Multi-ratio    : {multi_ratio:.0%}")
         print(f"  Cursor weight  : {cursor_weight}")
+        print(f"  Tasks          : 11 supervised task types")
         print("=" * 60)
 
     history = pretrain_semantic_cursor(
@@ -216,14 +210,12 @@ def run_pretrain_semantic(
         lr=lr,
         batch_size=batch_size,
         sigma=sigma,
-        multi_ratio=multi_ratio,
         cursor_weight=cursor_weight,
         num_workers=num_workers,
         device=device,
         verbose=verbose,
     )
 
-    # Save phase-2 checkpoint
     dummy_opt = optim.Adam(agent.parameters(), lr=lr)
     ckpt = CheckpointManager(checkpoint_dir, config)
     ckpt.save(agent, dummy_opt, step=0, episode=0, extra={
@@ -242,20 +234,168 @@ def run_pretrain_semantic(
     return agent
 
 
-# ── Phase 3: PPO RL Training ─────────────────────────────────────────────────
+# ── Phase 3: Teacher-Forced Multi-Step Pretraining ───────────────────────────
+
+def run_pretrain_teacher(
+    agent=None,
+    config=None,
+    num_trajectories: int = 5_000,
+    num_epochs: int = 15,
+    lr: float = 1e-4,
+    sigma: float = 12.0,
+    cursor_weight: float = 1.5,
+    polygon_ratio: float = 0.7,
+    device=None,
+    checkpoint_dir: str = "checkpoints_1",
+    verbose: bool = True,
+):
+    """
+    Phase 3: teacher-forced multi-step pretraining (2–9-step trajectories).
+
+    The agent sees sequential observations from trajectories including polygon
+    tracing (primary) and short 2-step tool chains (select→erase, select→rotate,
+    select→copy).  At each step, the ORACLE action is used to advance the
+    environment (teacher forcing), and loss is computed per-step.
+
+    No long-horizon reward: still purely supervised, with immediate per-step
+    feedback.  Bridges single-step Phase 2 and full RL Phase 4.
+    """
+    import torch
+    import torch.optim as optim
+    from cadfire.model.cad_agent import CADAgent
+    from cadfire.training.checkpoint import CheckpointManager
+    from cadfire.training.pretrain_teacher import pretrain_teacher_forcing
+    from cadfire.utils.config import load_config
+
+    config = config or load_config()
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    if agent is None:
+        agent = CADAgent(config)
+        ckpt = CheckpointManager(checkpoint_dir, config)
+        meta = ckpt.load(agent, optimizer=None, device=device)
+        if meta.get("step", 0) > 0 or meta.get("extra", {}):
+            print(f"  Loaded checkpoint for Phase-3 warm-start")
+
+    if verbose:
+        print("=" * 60)
+        print("Phase 3 – Teacher-Forced Multi-Step Pretraining")
+        print(f"  Trajectories/epoch : {num_trajectories:,}")
+        print(f"  Epochs             : {num_epochs}")
+        print(f"  LR                 : {lr}")
+        print(f"  Polygon ratio      : {polygon_ratio:.0%}")
+        print(f"  Cursor weight      : {cursor_weight}")
+        print("=" * 60)
+
+    history = pretrain_teacher_forcing(
+        agent, config,
+        num_trajectories=num_trajectories,
+        num_epochs=num_epochs,
+        lr=lr,
+        sigma=sigma,
+        cursor_weight=cursor_weight,
+        polygon_ratio=polygon_ratio,
+        device=device,
+        verbose=verbose,
+    )
+
+    dummy_opt = optim.Adam(agent.parameters(), lr=lr)
+    ckpt = CheckpointManager(checkpoint_dir, config)
+    ckpt.save(agent, dummy_opt, step=0, episode=0, extra={
+        "pretrain_phase": "teacher_forcing",
+        "pretrain_epochs": num_epochs,
+        "final_tool_acc": history["tool_accuracies"][-1],
+        "final_cursor_loss": history["cursor_losses"][-1],
+        "avg_traj_length": history["traj_lengths"][-1],
+    })
+
+    if verbose:
+        print(f"\nPhase-3 complete | "
+              f"tool acc {history['tool_accuracies'][-1]:.3f} | "
+              f"cursor loss {history['cursor_losses'][-1]:.4f} | "
+              f"avg traj len {history['traj_lengths'][-1]:.1f}")
+        print(f"Checkpoint saved to {checkpoint_dir}/")
+
+    return agent
+
+
+# ── Diagnostics: GIF generation after Phase 3 ────────────────────────────────
+
+def run_diagnostics(
+    agent=None,
+    config=None,
+    n_episodes: int = 6,
+    output_dir: str = "diagnostics",
+    fps: float = 1.5,
+    device=None,
+    checkpoint_dir: str = "checkpoints_1",
+    verbose: bool = True,
+):
+    """
+    Generate diagnostic GIFs after Phase-3 teacher-forced pretraining.
+
+    Produces two GIF types per episode:
+      • oracle_ep<N>.gif – oracle-driven rollout with agent attention overlay
+      • free_ep<N>.gif   – fully autonomous agent rollout (no teacher forcing)
+
+    The free rollout shows whether the framework can trace an arbitrary polygon
+    end-to-end without any oracle guidance.
+    """
+    import torch
+    from cadfire.model.cad_agent import CADAgent
+    from cadfire.training.checkpoint import CheckpointManager
+    from cadfire.training.diagnostics import generate_diagnostic_gifs
+    from cadfire.utils.config import load_config
+
+    config = config or load_config()
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    if agent is None:
+        agent = CADAgent(config)
+        ckpt = CheckpointManager(checkpoint_dir, config)
+        meta = ckpt.load(agent, optimizer=None, device=device)
+        if verbose:
+            print(f"  Loaded checkpoint (step {meta.get('step', 0)}) for diagnostics")
+
+    if verbose:
+        print("=" * 60)
+        print("Post-Phase-3 Diagnostics – Polygon Tracing GIFs")
+        print(f"  Episodes   : {n_episodes}")
+        print(f"  Output dir : {output_dir}/")
+        print(f"  FPS        : {fps}")
+        print("=" * 60)
+
+    metrics = generate_diagnostic_gifs(
+        agent, config,
+        output_dir=output_dir,
+        n_episodes=n_episodes,
+        device=device,
+        fps=fps,
+        verbose=verbose,
+    )
+
+    return metrics
+
+
+# ── Phase 4: PPO RL Training ─────────────────────────────────────────────────
 
 def run_training(
     num_steps: int = 100000,
     resume: bool = True,
-    device: str | None = None,
-    max_difficulty: float | None = None,
-    config_path: str | None = None,
+    device=None,
+    max_difficulty=None,
+    config_path=None,
     checkpoint_dir: str = "checkpoints_1",
     task_weights: dict | None = None,
     callback=None,
 ):
     """
-    Phase 3: PPO RL training loop.
+    Phase 4: PPO RL training loop.
+
+    Full agent training with curriculum learning.  Loads from Phase-3
+    checkpoint so all prior supervised learning is preserved.
 
     Args:
         num_steps     : Total environment steps to train.
@@ -293,15 +433,19 @@ def run_training(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="CADFire – three-phase training pipeline",
+        description="CADFire – four-phase training pipeline",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   Full pipeline from scratch:
-    python train.py --pretrain-tool --pretrain-semantic --steps 100000
+    python train.py --pretrain-tool --pretrain-semantic --pretrain-teacher \\
+                    --generate-gifs --steps 100000
 
-  Phase 2 + PPO (skip Phase 1):
-    python train.py --pretrain-semantic --steps 100000 --resume
+  Phase 2 + Phase 3 + PPO (skip Phase 1):
+    python train.py --pretrain-semantic --pretrain-teacher --steps 100000 --resume
+
+  Phase 3 only + diagnostics:
+    python train.py --pretrain-teacher --generate-gifs --steps 0
 
   PPO only (resume from checkpoint):
     python train.py --steps 500000 --resume
@@ -312,14 +456,20 @@ Examples:
     )
 
     # ── Which phases to run ──────────────────────────────────────────────
-    parser.add_argument("--pretrain-tool", action="store_true",
+    parser.add_argument("--pretrain-tool",     action="store_true",
                         help="Run Phase 1: text→tool supervised pretraining")
     parser.add_argument("--pretrain-semantic", action="store_true",
-                        help="Run Phase 2: semantic cursor supervised pretraining")
+                        help="Run Phase 2: single-step semantic cursor pretraining "
+                             "(all 11 task types, text encoder unfrozen)")
+    parser.add_argument("--pretrain-teacher",  action="store_true",
+                        help="Run Phase 3: teacher-forced multi-step pretraining "
+                             "(polygon tracing + short 2-step chains)")
+    parser.add_argument("--generate-gifs",     action="store_true",
+                        help="Generate diagnostic GIFs after Phase 3")
 
     # ── PPO options ──────────────────────────────────────────────────────
     parser.add_argument("--steps", type=int, default=100000,
-                        help="PPO environment steps (0 = skip RL)")
+                        help="Phase 4 PPO environment steps (0 = skip RL)")
     parser.add_argument("--resume", action="store_true", default=True,
                         help="Resume from latest checkpoint before PPO")
     parser.add_argument("--no-resume", action="store_true",
@@ -330,35 +480,55 @@ Examples:
     # ── Phase 1 options ──────────────────────────────────────────────────
     parser.add_argument("--tool-epochs", type=int, default=30,
                         help="[Phase 1] Supervised epochs for tool classifier")
-    parser.add_argument("--tool-lr", type=float, default=1e-3,
+    parser.add_argument("--tool-lr",    type=float, default=1e-3,
                         help="[Phase 1] Learning rate")
     parser.add_argument("--tool-batch", type=int, default=64,
                         help="[Phase 1] Batch size")
 
     # ── Phase 2 options ──────────────────────────────────────────────────
-    parser.add_argument("--sem-samples", type=int, default=20_000,
+    parser.add_argument("--sem-samples",      type=int,   default=20_000,
                         help="[Phase 2] Generated samples per epoch")
-    parser.add_argument("--sem-epochs", type=int, default=20,
+    parser.add_argument("--sem-epochs",       type=int,   default=20,
                         help="[Phase 2] Training epochs")
-    parser.add_argument("--sem-lr", type=float, default=3e-4,
+    parser.add_argument("--sem-lr",           type=float, default=3e-4,
                         help="[Phase 2] Learning rate")
-    parser.add_argument("--sem-batch", type=int, default=32,
+    parser.add_argument("--sem-batch",        type=int,   default=32,
                         help="[Phase 2] Batch size")
-    parser.add_argument("--sem-sigma", type=float, default=12.0,
+    parser.add_argument("--sem-sigma",        type=float, default=12.0,
                         help="[Phase 2] Gaussian blob radius (pixels)")
-    parser.add_argument("--sem-multi-ratio", type=float, default=0.4,
-                        help="[Phase 2] Fraction of MULTISELECT samples (0-1)")
-    parser.add_argument("--sem-cursor-weight", type=float, default=1.0,
+    parser.add_argument("--sem-cursor-weight",type=float, default=1.0,
                         help="[Phase 2] Cursor loss weight vs tool loss")
-    parser.add_argument("--sem-workers", type=int, default=0,
+    parser.add_argument("--sem-workers",      type=int,   default=0,
                         help="[Phase 2] DataLoader worker processes")
 
+    # ── Phase 3 options ──────────────────────────────────────────────────
+    parser.add_argument("--teacher-trajectories", type=int,   default=5_000,
+                        help="[Phase 3] Trajectories generated per epoch")
+    parser.add_argument("--teacher-epochs",       type=int,   default=15,
+                        help="[Phase 3] Training epochs")
+    parser.add_argument("--teacher-lr",           type=float, default=1e-4,
+                        help="[Phase 3] Learning rate")
+    parser.add_argument("--teacher-sigma",        type=float, default=12.0,
+                        help="[Phase 3] Gaussian blob radius (pixels)")
+    parser.add_argument("--teacher-cursor-weight",type=float, default=1.5,
+                        help="[Phase 3] Cursor loss weight")
+    parser.add_argument("--teacher-poly-ratio",   type=float, default=0.7,
+                        help="[Phase 3] Fraction of polygon-trace trajectories")
+
+    # ── Diagnostics options ──────────────────────────────────────────────
+    parser.add_argument("--gif-episodes",  type=int,   default=6,
+                        help="[Diagnostics] Number of polygon episodes to render")
+    parser.add_argument("--gif-output",    type=str,   default="diagnostics",
+                        help="[Diagnostics] Output directory for GIFs")
+    parser.add_argument("--gif-fps",       type=float, default=1.5,
+                        help="[Diagnostics] GIF frames per second")
+
     # ── Shared options ───────────────────────────────────────────────────
-    parser.add_argument("--device", type=str, default=None,
+    parser.add_argument("--device",        type=str, default=None,
                         help="torch device: cuda / cpu / None (auto)")
-    parser.add_argument("--config", type=str, default=None,
+    parser.add_argument("--config",        type=str, default=None,
                         help="Path to config.json")
-    parser.add_argument("--checkpoint-dir", type=str, default="checkpoints_1",
+    parser.add_argument("--checkpoint-dir",type=str, default="checkpoints_1",
                         help="Checkpoint directory")
 
     args = parser.parse_args()
@@ -392,14 +562,40 @@ Examples:
             lr=args.sem_lr,
             batch_size=args.sem_batch,
             sigma=args.sem_sigma,
-            multi_ratio=args.sem_multi_ratio,
             cursor_weight=args.sem_cursor_weight,
             num_workers=args.sem_workers,
             device=args.device,
             checkpoint_dir=args.checkpoint_dir,
         )
 
-    # ── Phase 3 (PPO) ────────────────────────────────────────────────────
+    # ── Phase 3 ─────────────────────────────────────────────────────────
+    if args.pretrain_teacher:
+        agent = run_pretrain_teacher(
+            agent=agent,
+            config=config,
+            num_trajectories=args.teacher_trajectories,
+            num_epochs=args.teacher_epochs,
+            lr=args.teacher_lr,
+            sigma=args.teacher_sigma,
+            cursor_weight=args.teacher_cursor_weight,
+            polygon_ratio=args.teacher_poly_ratio,
+            device=args.device,
+            checkpoint_dir=args.checkpoint_dir,
+        )
+
+    # ── Post-Phase-3 Diagnostics ─────────────────────────────────────────
+    if args.generate_gifs:
+        run_diagnostics(
+            agent=agent,
+            config=config,
+            n_episodes=args.gif_episodes,
+            output_dir=args.gif_output,
+            fps=args.gif_fps,
+            device=args.device,
+            checkpoint_dir=args.checkpoint_dir,
+        )
+
+    # ── Phase 4 (PPO) ────────────────────────────────────────────────────
     if args.steps > 0:
         run_training(
             num_steps=args.steps,

@@ -143,7 +143,12 @@ def run_pretrain_tool(
               f"loss {history['losses'][-1]:.4f}")
         print(f"Checkpoint saved to {checkpoint_dir}/")
 
-    return agent
+    # Normalise key names to match Phase 2/3 for consistent notebook plotting
+    history_out = {
+        "tool_losses":      history["losses"],
+        "tool_accuracies":  history["accuracies"],
+    }
+    return agent, history_out
 
 
 # ── Phase 2: Semantic Cursor Pretraining ─────────────────────────────────────
@@ -200,7 +205,8 @@ def run_pretrain_semantic(
         print(f"  Batch size     : {batch_size}")
         print(f"  Gaussian sigma : {sigma:.1f} px")
         print(f"  Cursor weight  : {cursor_weight}")
-        print(f"  Tasks          : 11 supervised task types")
+        from cadfire.training.pretrain_semantic import _TASK_REGISTRY as _REG
+        print(f"  Tasks          : {len(_REG)} supervised task types")
         print("=" * 60)
 
     history = pretrain_semantic_cursor(
@@ -231,7 +237,7 @@ def run_pretrain_semantic(
               f"cursor loss {history['cursor_losses'][-1]:.4f}")
         print(f"Checkpoint saved to {checkpoint_dir}/")
 
-    return agent
+    return agent, history
 
 
 # ── Phase 3: Teacher-Forced Multi-Step Pretraining ───────────────────────────
@@ -317,7 +323,7 @@ def run_pretrain_teacher(
               f"avg traj len {history['traj_lengths'][-1]:.1f}")
         print(f"Checkpoint saved to {checkpoint_dir}/")
 
-    return agent
+    return agent, history
 
 
 # ── Diagnostics: GIF generation after Phase 3 ────────────────────────────────

@@ -326,6 +326,99 @@ def run_pretrain_teacher(
     return agent, history
 
 
+# ── Supervised Learning Task Diagnostics ─────────────────────────────────────
+
+def run_supervised_diagnostics(
+    agent=None,
+    config=None,
+    output_dir: str = "supervised_diagnostics",
+    n_per_task: int = 4,
+    n_trajectories: int = 3,
+    phases=(1, 2, 3),
+    panel_size: int = 128,
+    device=None,
+    checkpoint_dir: str = "checkpoints_1",
+    seed: int = 0,
+    verbose: bool = True,
+):
+    """
+    Generate rich PNG diagnostics for all supervised learning tasks.
+
+    For each supervised task type (Phases 1-3), produces images showing
+    the agent's full observation space and the desired target outputs:
+
+    Observation inputs (per panel):
+      • Viewport RGB       – drawing with ghosts and selection highlights
+      • Reference / Raster – raster reference image (tracing tasks)
+      • Selection Mask     – which entities are currently selected
+      • Layer Composite    – all layer masks in distinct colours
+      • State vector info  – active tool, zoom, viewport, entity/selection/
+                             pending-point counts (cursor history)
+      • Text prompt        – full decoded prompt including past turn history
+
+    Target outputs (per panel):
+      • Oracle tool selection – the tool the agent should predict
+      • Oracle cursor heatmap – Gaussian blob(s) for single-point or
+                                multi-select cursor targets
+      • Cursor weight         – 0 = tool-only; 1 = cursor-critical
+
+    Args:
+        agent          : Optional CADAgent (reserved for future overlays).
+        config         : Config dict (defaults to config.json).
+        output_dir     : Root output directory.
+        n_per_task     : Phase-2 samples per task type.
+        n_trajectories : Phase-3 trajectories to visualise.
+        phases         : Tuple of phase numbers to run: (1,), (2,), (3,), or (1,2,3).
+        panel_size     : Pixel size of each image sub-panel.
+        device         : Torch device string.
+        checkpoint_dir : Checkpoint directory to load agent from (if agent=None).
+        seed           : RNG seed for reproducibility.
+        verbose        : Print progress.
+
+    Returns:
+        Dict with paths/counts for each phase generated.
+    """
+    import torch
+    from cadfire.model.cad_agent import CADAgent
+    from cadfire.training.checkpoint import CheckpointManager
+    from cadfire.training.supervised_diagnostics import generate_supervised_diagnostics
+    from cadfire.utils.config import load_config
+
+    config = config or load_config()
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    if agent is None:
+        agent = CADAgent(config)
+        ckpt = CheckpointManager(checkpoint_dir, config)
+        meta = ckpt.load(agent, optimizer=None, device=device)
+        if verbose and (meta.get("step", 0) > 0 or meta.get("extra", {})):
+            print(f"  Loaded checkpoint (step {meta.get('step', 0)}) for supervised diagnostics")
+
+    if verbose:
+        print("=" * 60)
+        print("Supervised Learning Task Diagnostics")
+        print(f"  Phases      : {phases}")
+        print(f"  Per task    : {n_per_task} samples")
+        print(f"  Trajectories: {n_trajectories}")
+        print(f"  Panel size  : {panel_size}px")
+        print(f"  Output dir  : {output_dir}/")
+        print("=" * 60)
+
+    return generate_supervised_diagnostics(
+        agent=agent,
+        config=config,
+        output_dir=output_dir,
+        n_per_task=n_per_task,
+        n_trajectories=n_trajectories,
+        phases=tuple(phases),
+        panel_size=panel_size,
+        device=device,
+        seed=seed,
+        verbose=verbose,
+    )
+
+
 # ── Diagnostics: GIF generation after Phase 3 ────────────────────────────────
 
 def run_diagnostics(
@@ -472,6 +565,8 @@ Examples:
                              "(polygon tracing + short 2-step chains)")
     parser.add_argument("--generate-gifs",     action="store_true",
                         help="Generate diagnostic GIFs after Phase 3")
+    parser.add_argument("--supervised-diag",   action="store_true",
+                        help="Generate supervised learning task diagnostics (all phases)")
 
     # ── PPO options ──────────────────────────────────────────────────────
     parser.add_argument("--steps", type=int, default=100000,
@@ -528,6 +623,18 @@ Examples:
                         help="[Diagnostics] Output directory for GIFs")
     parser.add_argument("--gif-fps",       type=float, default=1.5,
                         help="[Diagnostics] GIF frames per second")
+
+    # ── Supervised diagnostics options ───────────────────────────────────
+    parser.add_argument("--sup-diag-output",    type=str,   default="supervised_diagnostics",
+                        help="[SupDiag] Output directory for supervised task diagnostics")
+    parser.add_argument("--sup-diag-per-task",  type=int,   default=4,
+                        help="[SupDiag] Samples per Phase-2 task type")
+    parser.add_argument("--sup-diag-trajs",     type=int,   default=3,
+                        help="[SupDiag] Phase-3 trajectories to visualise")
+    parser.add_argument("--sup-diag-phases",    type=int,   nargs="+", default=[1, 2, 3],
+                        help="[SupDiag] Which phases to include (e.g. 2 3)")
+    parser.add_argument("--sup-diag-panel",     type=int,   default=128,
+                        help="[SupDiag] Pixel size for each image sub-panel")
 
     # ── Shared options ───────────────────────────────────────────────────
     parser.add_argument("--device",        type=str, default=None,
@@ -597,6 +704,20 @@ Examples:
             n_episodes=args.gif_episodes,
             output_dir=args.gif_output,
             fps=args.gif_fps,
+            device=args.device,
+            checkpoint_dir=args.checkpoint_dir,
+        )
+
+    # ── Supervised Learning Task Diagnostics ─────────────────────────────
+    if args.supervised_diag:
+        run_supervised_diagnostics(
+            agent=agent,
+            config=config,
+            output_dir=args.sup_diag_output,
+            n_per_task=args.sup_diag_per_task,
+            n_trajectories=args.sup_diag_trajs,
+            phases=args.sup_diag_phases,
+            panel_size=args.sup_diag_panel,
             device=args.device,
             checkpoint_dir=args.checkpoint_dir,
         )

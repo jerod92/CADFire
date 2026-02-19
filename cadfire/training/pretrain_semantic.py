@@ -27,6 +27,15 @@ Supervised task coverage (one task per major tool)
   COPY            – CopyObjectTask
   MOVE            – MoveObjectTask
   ROTATE          – RotateObjectTask
+  SCALE           – ScaleObjectTask         (single-step)
+  MIRROR          – MirrorObjectTask        (single-step)
+  OFFSET          – OffsetTask              (single-step)
+  SCALE (chat)    – ScaleFromChatTask       (multi-turn: "Draw X | make it smaller")
+  MOVE  (chat)    – MoveFromChatTask        (multi-turn: "Draw X | move it right")
+  ROTATE(chat)    – RotateFromChatTask      (multi-turn: "Draw X | rotate it")
+  ERASE (chat)    – EraseFromChatTask       (multi-turn: "Draw X | delete it")
+  COLOR (chat)    – ChangeColorFromChatTask (multi-turn: "Draw X | change it to red")
+  COPY  (chat)    – CopyFromChatTask        (multi-turn: "Draw X | copy it to the right")
 
 Loss design
 ───────────
@@ -76,6 +85,13 @@ from cadfire.tasks.supervised.trace_next import TraceNextPointTask
 from cadfire.tasks.supervised.copy_paste import CopyObjectTask
 from cadfire.tasks.supervised.move import MoveObjectTask
 from cadfire.tasks.supervised.rotate import RotateObjectTask
+from cadfire.tasks.supervised.multiturn import (
+    ScaleFromChatTask, MoveFromChatTask, RotateFromChatTask,
+    EraseFromChatTask, ChangeColorFromChatTask, CopyFromChatTask,
+)
+from cadfire.tasks.supervised.transform_extra import (
+    ScaleObjectTask, MirrorObjectTask, OffsetTask,
+)
 
 
 # ── Cursor-mask helpers ────────────────────────────────────────────────────────
@@ -161,17 +177,31 @@ def focal_bce_loss(pred_logits: torch.Tensor,
 # Each entry: (weight, task_class, constructor_kwargs)
 # Weight controls sampling probability relative to total.
 _TASK_REGISTRY = [
-    (2.0, SemanticSelectTask,      {}),
-    (2.0, SemanticMultiSelectTask, {}),
-    (1.5, DeleteObjectTask,        {}),
-    (1.0, PanTask,                 {}),
-    (0.8, ZoomInTask,              {}),
-    (0.8, ZoomOutTask,             {}),
-    (1.0, HatchObjectTask,         {}),
-    (2.5, TraceNextPointTask,      {}),   # highest weight – critical skill
-    (1.0, CopyObjectTask,          {}),
-    (1.0, MoveObjectTask,          {}),
-    (1.0, RotateObjectTask,        {}),
+    # ── Original 11 tasks ──────────────────────────────────────────────────
+    (2.0, SemanticSelectTask,       {}),
+    (2.0, SemanticMultiSelectTask,  {}),
+    (1.5, DeleteObjectTask,         {}),
+    (1.0, PanTask,                  {}),
+    (0.8, ZoomInTask,               {}),
+    (0.8, ZoomOutTask,              {}),
+    (1.0, HatchObjectTask,          {}),
+    (2.5, TraceNextPointTask,       {}),  # highest weight – critical skill
+    (1.0, CopyObjectTask,           {}),
+    (1.0, MoveObjectTask,           {}),
+    (1.0, RotateObjectTask,         {}),
+    # ── New single-step transform tasks ────────────────────────────────────
+    (1.0, ScaleObjectTask,          {}),  # SCALE with pivot cursor
+    (0.8, MirrorObjectTask,         {}),  # MIRROR with axis cursor
+    (0.8, OffsetTask,               {}),  # OFFSET with direction cursor
+    # ── Multi-turn chat tasks ───────────────────────────────────────────────
+    # These teach the model to read conversation history:
+    # prompt = "<first turn> | <second turn>"; entity already exists + selected
+    (1.2, ScaleFromChatTask,        {}),  # "Draw X | make it smaller/bigger"
+    (1.2, MoveFromChatTask,         {}),  # "Draw X | move it right/left/…"
+    (1.2, RotateFromChatTask,       {}),  # "Draw X | rotate it N degrees"
+    (1.0, EraseFromChatTask,        {}),  # "Draw X | delete it"
+    (0.8, ChangeColorFromChatTask,  {}),  # "Draw X | change it to {color}"
+    (1.2, CopyFromChatTask,         {}),  # "Draw X | copy it to the right"
 ]
 
 _WEIGHTS = np.array([w for w, _, _ in _TASK_REGISTRY], dtype=np.float64)

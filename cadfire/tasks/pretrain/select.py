@@ -18,7 +18,7 @@ from cadfire.engine.geometry import (
 )
 
 # Re-export the shape catalogue for convenience
-from cadfire.tasks.pretrain_select_tasks import (
+from cadfire.tasks.pretrain.pretrain_select_tasks import (
     SEMANTIC_SHAPES, NUM_SEMANTIC_SHAPES, _QUADRANT_CENTRES, _place_shape,
     _SELECT_PROMPTS, _MULTISELECT_PROMPTS,
 )

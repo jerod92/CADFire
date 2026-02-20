@@ -425,7 +425,7 @@ def _gen_phase1_grid(config: Dict, output_dir: Path, verbose: bool) -> None:
     For every tool in the config, shows all its natural-language prompt
     variants. Saved as a single PNG (or .npy fallback).
     """
-    from cadfire.training.pretrain_tools import _TOOL_PROMPTS
+    from cadfire.training.pretrain.tools import _TOOL_PROMPTS
     from cadfire.utils.config import tool_list
 
     tools = tool_list()
@@ -467,7 +467,7 @@ def _gen_phase2_samples(
 
     Returns a dict mapping task_class_name → number of frames saved.
     """
-    from cadfire.training.pretrain_semantic import _TASK_REGISTRY, oracle_to_cursor_mask
+    from cadfire.training.pretrain.semantic import _TASK_REGISTRY, oracle_to_cursor_mask
 
     sigma = 12.0
     H_c = config["canvas"]["render_height"]
@@ -565,7 +565,7 @@ def _gen_phase3_trajectories(
 
     Returns the number of trajectories saved.
     """
-    from cadfire.training.pretrain_teacher import TeacherForcingDataset
+    from cadfire.training.pretrain.teacher import TeacherForcingDataset
 
     tokenizer = BPETokenizer(
         vocab_size=config["model"]["text_vocab_size"],

@@ -12,8 +12,8 @@ Design constraints (per user spec):
   3. NO image input feedback and NO cursor output feedback.
 
 Usage:
-    python -m cadfire.training.pretrain_tools          # CLI
-    from cadfire.training.pretrain_tools import pretrain_tool_classifier
+    python -m cadfire.training.pretrain.tools          # CLI
+    from cadfire.training.pretrain.tools import pretrain_tool_classifier
     pretrain_tool_classifier(agent, config, num_epochs=30)
 """
 

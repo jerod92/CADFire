@@ -45,10 +45,10 @@ After training saves checkpoint for Phase-4 (PPO).
 Usage
 ─────
     # Standalone
-    python -m cadfire.training.pretrain_teacher --trajectories 5000 --epochs 15
+    python -m cadfire.training.pretrain.teacher --trajectories 5000 --epochs 15
 
     # From train.py / notebook
-    from cadfire.training.pretrain_teacher import pretrain_teacher_forcing
+    from cadfire.training.pretrain.teacher import pretrain_teacher_forcing
     history = pretrain_teacher_forcing(agent, config, num_trajectories=5000, num_epochs=15)
 """
 
@@ -66,21 +66,21 @@ import torch.optim as optim
 from cadfire.engine.cad_engine import CADEngine
 from cadfire.model.cad_agent import CADAgent
 from cadfire.renderer.rasterizer import Renderer
-from cadfire.tasks.supervised.polygon_trace import PolygonTraceTask
+from cadfire.tasks.pretrain.polygon_trace import PolygonTraceTask
 from cadfire.tokenizer.bpe import BPETokenizer
-from cadfire.training.pretrain_semantic import (
+from cadfire.training.pretrain.semantic import (
     oracle_to_cursor_mask, focal_bce_loss,
 )
 from cadfire.utils.config import load_config, tool_to_index
 
 # ── Short two-step trajectory builders ────────────────────────────────────────
 
-from cadfire.tasks.supervised.select import SemanticSelectTask
-from cadfire.tasks.supervised.delete import DeleteObjectTask
-from cadfire.tasks.supervised.rotate import RotateObjectTask
-from cadfire.tasks.supervised.copy_paste import CopyObjectTask
-from cadfire.tasks.supervised.move import MoveObjectTask, prepositional_move_step
-from cadfire.tasks.supervised.conditional import AndSelectTrajectory
+from cadfire.tasks.pretrain.select import SemanticSelectTask
+from cadfire.tasks.pretrain.delete import DeleteObjectTask
+from cadfire.tasks.pretrain.rotate import RotateObjectTask
+from cadfire.tasks.pretrain.copy_paste import CopyObjectTask
+from cadfire.tasks.pretrain.move import MoveObjectTask, prepositional_move_step
+from cadfire.tasks.pretrain.conditional import AndSelectTrajectory
 
 
 def _build_select_then_erase(rng, engine, renderer, tokenizer, tool_idx,

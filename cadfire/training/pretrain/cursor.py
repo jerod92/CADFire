@@ -16,7 +16,7 @@ Design:
   - Text encoder is kept frozen (already trained in Phase 1)
 
 Usage:
-    from cadfire.training.pretrain_cursor import pretrain_cursor_imitation
+    from cadfire.training.pretrain.cursor import pretrain_cursor_imitation
     history = pretrain_cursor_imitation(agent, config, num_samples=20000, num_epochs=20)
 """
 

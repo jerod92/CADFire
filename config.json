@@ -67,6 +67,7 @@
     "LAYER_THAW",
     "COLOR_SET",
     "LINETYPE_SET",
+    "LINEWEIGHT_SET",
     "MATCHPROP",
     "SELECT",
     "MULTISELECT",

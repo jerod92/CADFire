@@ -374,6 +374,9 @@ class CADEnv:
         elif tool == "LINETYPE_SET":
             eng.active_linetype = "CONTINUOUS"  # simplified
 
+        elif tool == "LINEWEIGHT_SET":
+            eng.active_lineweight = max(0.09, min(float(param), 2.11))
+
         # Viewport tools
         elif tool == "ZOOM_IN":
             eng.zoom_in()

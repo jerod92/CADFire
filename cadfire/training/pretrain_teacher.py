@@ -79,7 +79,8 @@ from cadfire.tasks.supervised.select import SemanticSelectTask
 from cadfire.tasks.supervised.delete import DeleteObjectTask
 from cadfire.tasks.supervised.rotate import RotateObjectTask
 from cadfire.tasks.supervised.copy_paste import CopyObjectTask
-from cadfire.tasks.supervised.move import MoveObjectTask
+from cadfire.tasks.supervised.move import MoveObjectTask, prepositional_move_step
+from cadfire.tasks.supervised.conditional import AndSelectTrajectory
 
 
 def _build_select_then_erase(rng, engine, renderer, tokenizer, tool_idx,
@@ -198,12 +199,77 @@ def _make_step(image, text_ids, state_vec, tool_id, cursor_mask,
     }
 
 
+def _build_select_then_move(rng, engine, renderer, tokenizer, tool_idx,
+                             H, W, sigma, state_dim, config) -> List[Dict]:
+    """2-step: SELECT target, then MOVE it prepositionally (directional)."""
+    select_task = SemanticSelectTask(seed=int(rng.randint(0, 2**31)))
+    engine.reset()
+    setup = select_task.setup(engine)
+    image = renderer.render(engine)
+    text_ids = np.array(tokenizer.encode_padded(setup["prompt"]), dtype=np.int32)
+    sv = _state_vec(engine, tool_idx, state_dim, config)
+    oracle1 = select_task.oracle_action(engine, setup)
+    mask1 = oracle_to_cursor_mask(oracle1["cursor_world"], engine, H, W, sigma)
+    step1 = _make_step(image, text_ids, sv, tool_idx[oracle1["tool"]],
+                        mask1, oracle1.get("cursor_weight", 1.0))
+
+    # Apply oracle: select the entity
+    engine.selected_ids.add(setup["target_entity"].id)
+
+    # Generate prepositional MOVE prompt & destination
+    move_prompt, dest = prepositional_move_step(
+        setup["target_entity"], setup["target_name"], rng
+    )
+
+    image2 = renderer.render(engine)
+    text_ids2 = np.array(tokenizer.encode_padded(move_prompt), dtype=np.int32)
+    sv2 = _state_vec(engine, tool_idx, state_dim, config)
+    mask2 = oracle_to_cursor_mask(dest, engine, H, W, sigma)
+    step2 = _make_step(image2, text_ids2, sv2, tool_idx["MOVE"], mask2, 1.0)
+
+    return [step1, step2]
+
+
+def _build_and_select(rng, engine, renderer, tokenizer, tool_idx,
+                      H, W, sigma, state_dim, config) -> List[Dict]:
+    """2-step: SELECT shape1, then MULTISELECT shape2 (AND-selection)."""
+    traj_task = AndSelectTrajectory(seed=int(rng.randint(0, 2**31)))
+    engine.reset()
+    setup = traj_task.setup(engine)
+    prompt = setup["prompt"]
+
+    # Step 1: SELECT shape1
+    image = renderer.render(engine)
+    text_ids = np.array(tokenizer.encode_padded(prompt), dtype=np.int32)
+    sv = _state_vec(engine, tool_idx, state_dim, config)
+    oracle1 = traj_task.oracle_step1()
+    mask1 = oracle_to_cursor_mask(oracle1["cursor_world"], engine, H, W, sigma)
+    step1 = _make_step(image, text_ids, sv, tool_idx[oracle1["tool"]],
+                        mask1, oracle1["cursor_weight"])
+
+    # Apply oracle: register shape1 as selected
+    engine.selected_ids.add(setup["shape1_entity"].id)
+
+    # Step 2: MULTISELECT shape2
+    image2 = renderer.render(engine)
+    text_ids2 = np.array(tokenizer.encode_padded(prompt), dtype=np.int32)
+    sv2 = _state_vec(engine, tool_idx, state_dim, config)
+    oracle2 = traj_task.oracle_step2()
+    mask2 = oracle_to_cursor_mask(oracle2["cursor_world"], engine, H, W, sigma)
+    step2 = _make_step(image2, text_ids2, sv2, tool_idx[oracle2["tool"]],
+                        mask2, oracle2["cursor_weight"])
+
+    return [step1, step2]
+
+
 # ── Short trajectory builders registry ───────────────────────────────────────
 
 _SHORT_BUILDERS = [
     _build_select_then_erase,
     _build_select_then_rotate,
     _build_select_then_copy,
+    _build_select_then_move,
+    _build_and_select,
 ]
 
 

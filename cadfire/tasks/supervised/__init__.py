@@ -34,6 +34,15 @@ New single-step transform tasks:
                      – MirrorObjectTask         (MIRROR)
                      – OffsetTask               (OFFSET)
 
+Geometric-editing tasks:
+  geometry_ops.py    – FilletTask               (FILLET  – round corner, cursor at vertex)
+                     – ChamferTask              (CHAMFER – bevel corner, cursor at vertex)
+                     – TrimTask                 (TRIM    – cursor on segment to remove)
+
+Array tasks:
+  array_ops.py       – ArrayRectTask            (ARRAY_RECT  – cursor at far-corner of grid)
+                     – ArrayPolarTask           (ARRAY_POLAR – cursor at rotation centre)
+
 Conditional-reasoning tasks (IF / UNLESS / EXCEPT / ONLY / OR / AND):
   conditional.py    – IfSelectTask              (SELECT or NOOP based on IF condition)
                     – UnlessColorTask           (SELECT or NOOP based on UNLESS color)

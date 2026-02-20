@@ -248,6 +248,7 @@ def run_pretrain_teacher(
     num_trajectories: int = 5_000,
     num_epochs: int = 15,
     lr: float = 1e-4,
+    batch_size: int = 8,
     sigma: float = 12.0,
     cursor_weight: float = 1.5,
     polygon_ratio: float = 0.7,
@@ -299,6 +300,7 @@ def run_pretrain_teacher(
         num_trajectories=num_trajectories,
         num_epochs=num_epochs,
         lr=lr,
+        batch_size=batch_size,
         sigma=sigma,
         cursor_weight=cursor_weight,
         polygon_ratio=polygon_ratio,
@@ -609,6 +611,8 @@ Examples:
                         help="[Phase 3] Training epochs")
     parser.add_argument("--teacher-lr",           type=float, default=1e-4,
                         help="[Phase 3] Learning rate")
+    parser.add_argument("--teacher-batch",        type=int,   default=8,
+                        help="[Phase 3] Batch size for trajectory lengths")
     parser.add_argument("--teacher-sigma",        type=float, default=12.0,
                         help="[Phase 3] Gaussian blob radius (pixels)")
     parser.add_argument("--teacher-cursor-weight",type=float, default=1.5,
@@ -689,6 +693,7 @@ Examples:
             num_trajectories=args.teacher_trajectories,
             num_epochs=args.teacher_epochs,
             lr=args.teacher_lr,
+            batch_size=args.teacher_batch,
             sigma=args.teacher_sigma,
             cursor_weight=args.teacher_cursor_weight,
             polygon_ratio=args.teacher_poly_ratio,

@@ -92,6 +92,11 @@ from cadfire.tasks.supervised.multiturn import (
 from cadfire.tasks.supervised.transform_extra import (
     ScaleObjectTask, MirrorObjectTask, OffsetTask,
 )
+from cadfire.tasks.supervised.draw_point import DrawPointTask
+from cadfire.tasks.supervised.control import UndoTask, RedoTask
+from cadfire.tasks.supervised.point_precision import (
+    TriangleVertexTask, LineMidpointTask, CircleCenterTask,
+)
 
 
 # ── Cursor-mask helpers ────────────────────────────────────────────────────────
@@ -193,6 +198,14 @@ _TASK_REGISTRY = [
     (1.0, ScaleObjectTask,          {}),  # SCALE with pivot cursor
     (0.8, MirrorObjectTask,         {}),  # MIRROR with axis cursor
     (0.8, OffsetTask,               {}),  # OFFSET with direction cursor
+    # ── New drawing/control tasks ──────────────────────────────────────────
+    (1.5, DrawPointTask,            {}),
+    (0.5, UndoTask,                 {}),
+    (0.5, RedoTask,                 {}),
+    # ── Point Precision tasks ──────────────────────────────────────────────
+    (2.0, TriangleVertexTask,       {}),
+    (2.0, LineMidpointTask,         {}),
+    (2.0, CircleCenterTask,         {}),
     # ── Multi-turn chat tasks ───────────────────────────────────────────────
     # These teach the model to read conversation history:
     # prompt = "<first turn> | <second turn>"; entity already exists + selected

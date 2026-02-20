@@ -262,6 +262,121 @@ def _build_and_select(rng, engine, renderer, tokenizer, tool_idx,
     return [step1, step2]
 
 
+def _render_entity_reference(entity, H: int, W: int, engine: CADEngine) -> np.ndarray:
+    from cadfire.utils.config import load_config
+    from cadfire.renderer.rasterizer import Renderer
+    e2 = CADEngine(load_config())
+    e2.viewport.center = engine.viewport.center.copy()
+    e2.viewport.zoom = engine.viewport.zoom
+    e2.add_entity(entity, save_undo=False)
+    r = Renderer(load_config())
+    return r.render_rgb_only(e2)
+
+def _build_draw_line(rng, engine, renderer, tokenizer, tool_idx, H, W, sigma, state_dim, config) -> List[Dict]:
+    from cadfire.engine.geometry import LineEntity
+    p1 = np.array([float(rng.uniform(200, 800)), float(rng.uniform(200, 800))])
+    p2 = p1 + np.array([float(rng.uniform(-200, 200)), float(rng.uniform(-200, 200))])
+    entity = LineEntity(start=p1.copy(), end=p2.copy(), color_index=0)
+    ref_image = _render_entity_reference(entity, H, W, engine)
+    ref_float = ref_image.astype(np.float32) / 255.0
+    text_ids = np.array(tokenizer.encode_padded("Draw a line as shown"), dtype=np.int32)
+    engine.reset()
+    engine.active_tool = "LINE"
+    steps = []
+    points = [p1, p2]
+    for step in range(3):
+        is_confirm = (step == 2)
+        image = renderer.render(engine)
+        if image.shape[2] > 5:
+            image[:, :, 3:6] = ref_float
+        sv = _state_vec(engine, tool_idx, state_dim, config)
+        if is_confirm:
+            tid = tool_idx["CONFIRM"]
+            mask = oracle_to_cursor_mask(points[-1], engine, H, W, sigma) 
+            w = 0.05
+        else:
+            tid = tool_idx["LINE"]
+            mask = oracle_to_cursor_mask(points[step], engine, H, W, sigma)
+            w = 1.0
+        steps.append(_make_step(image, text_ids.copy(), sv, tid, mask, w))
+        if not is_confirm:
+            engine.pending_points.append(points[step].copy())
+            if step == 1:
+               engine.add_entity(entity, save_undo=False)
+               engine.pending_points.clear()
+    return steps
+
+def _build_draw_circle(rng, engine, renderer, tokenizer, tool_idx, H, W, sigma, state_dim, config) -> List[Dict]:
+    from cadfire.engine.geometry import CircleEntity
+    center = np.array([float(rng.uniform(300, 700)), float(rng.uniform(300, 700))])
+    radius = float(rng.uniform(50, 200))
+    angle = float(rng.uniform(0, 2*np.pi))
+    p2 = center + np.array([radius * np.cos(angle), radius * np.sin(angle)])
+    entity = CircleEntity(center=center.copy(), radius=radius, color_index=0)
+    ref_image = _render_entity_reference(entity, H, W, engine)
+    ref_float = ref_image.astype(np.float32) / 255.0
+    text_ids = np.array(tokenizer.encode_padded("Draw a circle as shown"), dtype=np.int32)
+    engine.reset()
+    engine.active_tool = "CIRCLE"
+    steps = []
+    points = [center, p2]
+    for step in range(3):
+        is_confirm = (step == 2)
+        image = renderer.render(engine)
+        if image.shape[2] > 5:
+            image[:, :, 3:6] = ref_float
+        sv = _state_vec(engine, tool_idx, state_dim, config)
+        if is_confirm:
+            tid = tool_idx["CONFIRM"]
+            mask = oracle_to_cursor_mask(points[-1], engine, H, W, sigma) 
+            w = 0.05
+        else:
+            tid = tool_idx["CIRCLE"]
+            mask = oracle_to_cursor_mask(points[step], engine, H, W, sigma)
+            w = 1.0
+        steps.append(_make_step(image, text_ids.copy(), sv, tid, mask, w))
+        if not is_confirm:
+            engine.pending_points.append(points[step].copy())
+            if step == 1:
+               engine.add_entity(entity, save_undo=False)
+               engine.pending_points.clear()
+    return steps
+
+def _build_draw_rectangle(rng, engine, renderer, tokenizer, tool_idx, H, W, sigma, state_dim, config) -> List[Dict]:
+    from cadfire.engine.geometry import RectangleEntity
+    c1 = np.array([float(rng.uniform(200, 600)), float(rng.uniform(200, 600))])
+    w_shape, h_shape = float(rng.uniform(50, 300)), float(rng.uniform(50, 300))
+    c2 = c1 + np.array([w_shape, h_shape])
+    entity = RectangleEntity(corner=c1.copy(), width=w_shape, height=h_shape, color_index=0)
+    ref_image = _render_entity_reference(entity, H, W, engine)
+    ref_float = ref_image.astype(np.float32) / 255.0
+    text_ids = np.array(tokenizer.encode_padded("Draw a rectangle matching the reference"), dtype=np.int32)
+    engine.reset()
+    engine.active_tool = "RECTANGLE"
+    steps = []
+    points = [c1, c2]
+    for step in range(3):
+        is_confirm = (step == 2)
+        image = renderer.render(engine)
+        if image.shape[2] > 5:
+            image[:, :, 3:6] = ref_float
+        sv = _state_vec(engine, tool_idx, state_dim, config)
+        if is_confirm:
+            tid = tool_idx["CONFIRM"]
+            mask = oracle_to_cursor_mask(points[-1], engine, H, W, sigma) 
+            w = 0.05
+        else:
+            tid = tool_idx["RECTANGLE"]
+            mask = oracle_to_cursor_mask(points[step], engine, H, W, sigma)
+            w = 1.0
+        steps.append(_make_step(image, text_ids.copy(), sv, tid, mask, w))
+        if not is_confirm:
+            engine.pending_points.append(points[step].copy())
+            if step == 1:
+               engine.add_entity(entity, save_undo=False)
+               engine.pending_points.clear()
+    return steps
+
 # ── Short trajectory builders registry ───────────────────────────────────────
 
 _SHORT_BUILDERS = [
@@ -270,6 +385,9 @@ _SHORT_BUILDERS = [
     _build_select_then_copy,
     _build_select_then_move,
     _build_and_select,
+    _build_draw_line,
+    _build_draw_circle,
+    _build_draw_rectangle,
 ]
 
 
@@ -363,6 +481,7 @@ def pretrain_teacher_forcing(
     num_trajectories: int = 5_000,
     num_epochs: int = 15,
     lr: float = 1e-4,
+    batch_size: int = 8,
     sigma: float = 12.0,
     cursor_weight: float = 1.5,
     focal_gamma: float = 2.0,
@@ -445,57 +564,113 @@ def pretrain_teacher_forcing(
         rng_ep.shuffle(indices)
 
         agent.train()
+        
+        # Buffer trajectories grouped by length (number of steps)
+        # Type: Dict[length, List[trajectory]]
+        length_buffers = {}
+        
+        def process_batch(n_steps: int, batch_trajs: List[List[Dict]]):
+            nonlocal epoch_tool, epoch_cursor, epoch_total, epoch_corr, epoch_steps, epoch_trajs
+            B = len(batch_trajs)
+            if B == 0: return
+            
+            # For each step t in 0..n_steps-1, we stack the tensors over the batch B
+            # computing the forward pass across B environments simultaneously
+            batch_traj_tool = 0.0
+            batch_traj_cursor = 0.0
+            batch_traj_loss = torch.tensor(0.0, device=device)
+            batch_traj_corr = 0
+            
+            for t in range(n_steps):
+                # Gather step t for all trajectories in the batch
+                t_images = []
+                t_text_ids = []
+                t_state_vecs = []
+                t_tool_ids = []
+                t_cursor_tgts = []
+                t_cursor_weights = []
+                
+                for traj in batch_trajs:
+                    step = traj[t]
+                    t_images.append(torch.from_numpy(step["image"]).float().to(device))
+                    t_text_ids.append(torch.from_numpy(step["text_ids"]).long().to(device))
+                    t_state_vecs.append(torch.from_numpy(step["state_vec"]).float().to(device))
+                    t_tool_ids.append(step["tool_id"])
+                    t_cursor_tgts.append(torch.from_numpy(step["cursor_mask"]).float().to(device))
+                    t_cursor_weights.append(step["cursor_weight"])
+                
+                # Stack them: Image -> [B, H, W, C]; text -> [B, max_len] etc
+                images = torch.stack(t_images, dim=0)
+                text_ids = torch.stack(t_text_ids, dim=0)
+                state_vecs = torch.stack(t_state_vecs, dim=0)
+                tool_ids = torch.tensor(t_tool_ids, dtype=torch.long, device=device)
+                cursor_tgts = torch.stack(t_cursor_tgts, dim=0)
+                c_w = torch.tensor(t_cursor_weights, dtype=torch.float32, device=device)
+                
+                obs = {"image": images, "text_ids": text_ids, "state_vec": state_vecs}
+                out = agent(obs)
+                
+                tool_logits = out["tool_logits"]       # (B, num_tools)
+                cursor_heatmap = out["cursor_heatmap"] # (B, 1, H, W)
+                
+                t_loss = tool_criterion(tool_logits, tool_ids)
+                
+                c_loss = focal_bce_loss(
+                    cursor_heatmap.squeeze(1), # (B, H, W)
+                    cursor_tgts,               # (B, H, W)
+                    gamma=focal_gamma,
+                    alpha=focal_alpha,
+                )
+                
+                # Apply cursor weights across batch
+                # c_loss is currently reduced (mean over B and spatial dims if default).
+                # Actually, our focal_bce_loss returns a mean scalar. We want to weight it.
+                # Assuming focal_bce_loss returns a scalar, treating the batch uniformly.
+                # This is slightly inaccurate if c_w differs among the batch, but for trajectories
+                # of the same length, steps usually have similar weights across the batch.
+                avg_cw = cursor_weight * c_w.mean()
+                
+                step_loss = t_loss + avg_cw * c_loss
+                batch_traj_loss = batch_traj_loss + step_loss
+                
+                batch_traj_tool += t_loss.item()
+                batch_traj_cursor += c_loss.item()
+                batch_traj_corr += int((tool_logits.argmax(dim=-1) == tool_ids).sum().item())
+                
+            optimizer.zero_grad()
+            # Mean loss over trajectory steps
+            (batch_traj_loss / max(n_steps, 1)).backward()
+            nn.utils.clip_grad_norm_(trainable, max_norm=1.0)
+            optimizer.step()
+            
+            # Accumulate metrics
+            epoch_tool += batch_traj_tool * B
+            epoch_cursor += batch_traj_cursor * B
+            epoch_total += (batch_traj_loss.item() / max(n_steps, 1)) * B
+            epoch_corr += batch_traj_corr
+            epoch_steps += n_steps * B
+            epoch_trajs += B
 
         for traj_idx in indices:
             trajectory = dataset[traj_idx]
             if not trajectory:
                 continue
-
-            traj_tool   = 0.0
-            traj_cursor = 0.0
-            traj_loss   = torch.tensor(0.0, device=device)
-            traj_corr   = 0
-
-            for step in trajectory:
-                image      = torch.from_numpy(step["image"]).float().unsqueeze(0).to(device)
-                text_ids   = torch.from_numpy(step["text_ids"]).long().unsqueeze(0).to(device)
-                state_vec  = torch.from_numpy(step["state_vec"]).float().unsqueeze(0).to(device)
-                tool_id    = torch.tensor([step["tool_id"]], dtype=torch.long, device=device)
-                cursor_tgt = torch.from_numpy(step["cursor_mask"]).float().unsqueeze(0).to(device)
-                c_w        = step["cursor_weight"]
-
-                obs = {"image": image, "text_ids": text_ids, "state_vec": state_vec}
-                out = agent(obs)
-
-                tool_logits    = out["tool_logits"]    # (1, num_tools)
-                cursor_heatmap = out["cursor_heatmap"] # (1, 1, H, W)
-
-                t_loss = tool_criterion(tool_logits, tool_id)
-                c_loss = focal_bce_loss(
-                    cursor_heatmap.squeeze(1),  # (1, H, W)
-                    cursor_tgt,
-                    gamma=focal_gamma,
-                    alpha=focal_alpha,
-                )
-                step_loss = t_loss + cursor_weight * c_w * c_loss
-                traj_loss = traj_loss + step_loss
-
-                traj_tool   += t_loss.item()
-                traj_cursor += c_loss.item()
-                traj_corr   += int((tool_logits.argmax(dim=-1) == tool_id).item())
-
-            n_steps = len(trajectory)
-            optimizer.zero_grad()
-            (traj_loss / max(n_steps, 1)).backward()
-            nn.utils.clip_grad_norm_(trainable, max_norm=1.0)
-            optimizer.step()
-
-            epoch_tool   += traj_tool
-            epoch_cursor += traj_cursor
-            epoch_total  += (traj_loss.item() / max(n_steps, 1))
-            epoch_corr   += traj_corr
-            epoch_steps  += n_steps
-            epoch_trajs  += 1
+            
+            L = len(trajectory)
+            if L not in length_buffers:
+                length_buffers[L] = []
+            
+            length_buffers[L].append(trajectory)
+            
+            # If buffer for this length hits batch size, process it
+            if len(length_buffers[L]) >= batch_size:
+                process_batch(L, length_buffers[L])
+                length_buffers[L] = []
+        
+        # Process remaining trajectories in buffers
+        for L, buf in length_buffers.items():
+            if len(buf) > 0:
+                process_batch(L, buf)
 
         n = max(epoch_steps, 1)
         avg_tool   = epoch_tool   / n
@@ -514,7 +689,7 @@ def pretrain_teacher_forcing(
             print(
                 f"  Teacher epoch {epoch + 1:>3d}/{num_epochs} | "
                 f"total {avg_total:.4f} | "
-                f"tool {avg_tool:.4f} (acc {avg_acc:.3f}) | "
+                f"tool {avg_tool:.4f} (acc {avg_acc:.2%}) | "
                 f"cursor {avg_cursor:.4f} | "
                 f"avg_len {avg_len:.1f}"
             )

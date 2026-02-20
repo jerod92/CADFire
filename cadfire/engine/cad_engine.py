@@ -91,6 +91,7 @@ class CADEngine:
         # Active drawing color (index into palette)
         self.active_color: int = 0
         self.active_linetype: str = "CONTINUOUS"
+        self.active_lineweight: float = 0.25
 
         # Selection
         self.selected_ids: Set[str] = set()
@@ -125,6 +126,7 @@ class CADEngine:
             "active_layer": self.active_layer,
             "active_color": self.active_color,
             "active_linetype": self.active_linetype,
+            "active_lineweight": self.active_lineweight,
             "viewport": copy.deepcopy(self.viewport),
             "layers": copy.deepcopy(self.layers),
         }
@@ -136,6 +138,7 @@ class CADEngine:
         self.active_layer = snap["active_layer"]
         self.active_color = snap["active_color"]
         self.active_linetype = snap["active_linetype"]
+        self.active_lineweight = snap.get("active_lineweight", 0.25)
         self.viewport = snap["viewport"]
         self.layers = snap["layers"]
 
@@ -169,6 +172,7 @@ class CADEngine:
         entity.layer = self.active_layer
         entity.color_index = self.active_color
         entity.linetype = self.active_linetype
+        entity.lineweight = self.active_lineweight
         self.entities.append(entity)
         return entity.id
 
@@ -519,6 +523,7 @@ class CADEngine:
             "active_layer": self.active_layer,
             "active_color": self.active_color,
             "active_linetype": self.active_linetype,
+            "active_lineweight": self.active_lineweight,
             "viewport": {
                 "center": self.viewport.center.tolist(),
                 "zoom": self.viewport.zoom,
@@ -557,6 +562,7 @@ class CADEngine:
         self.active_layer = self.config["layers"]["default_layer"]
         self.active_color = 0
         self.active_linetype = "CONTINUOUS"
+        self.active_lineweight = 0.25
         vp_cfg = self.config["viewport"]
         self.viewport.center = np.array(vp_cfg["default_center"], dtype=np.float64)
         self.viewport.zoom = vp_cfg["default_zoom"]

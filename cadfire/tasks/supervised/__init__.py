@@ -24,13 +24,27 @@ Single-step tasks (original 11):
   hatch.py          – HatchObjectTask           (HATCH)
   trace_next.py     – TraceNextPointTask        (POLYLINE – next vertex)
   copy_paste.py     – CopyObjectTask            (COPY)
-  move.py           – MoveObjectTask            (MOVE)
+  move.py           – MoveObjectTask            (MOVE – marker-driven)
+                    – PrepositionalMoveTask     (MOVE – directional & relational)
+                    – prepositional_move_step() (helper for Phase-3 builders)
   rotate.py         – RotateObjectTask          (ROTATE)
 
 New single-step transform tasks:
   transform_extra.py – ScaleObjectTask          (SCALE)
                      – MirrorObjectTask         (MIRROR)
                      – OffsetTask               (OFFSET)
+
+Conditional-reasoning tasks (IF / UNLESS / EXCEPT / ONLY / OR / AND):
+  conditional.py    – IfSelectTask              (SELECT or NOOP based on IF condition)
+                    – UnlessColorTask           (SELECT or NOOP based on UNLESS color)
+                    – ExceptEraseTask           (ERASE all except one protected shape)
+                    – OnlyColorSelectTask       (MULTISELECT only matching-color shapes)
+                    – OrColorSelectTask         (MULTISELECT color1 OR color2 shapes)
+                    – AndSelectTrajectory       (2-step SELECT+MULTISELECT, Phase 3)
+
+Style / property tasks:
+  style.py          – LinetypeSetTask           (LINETYPE_SET)
+                    – LineweightSetTask         (LINEWEIGHT_SET)
 
 Multi-turn chat tasks (prompt = "<turn 1> | <turn 2>"):
   multiturn.py      – ScaleFromChatTask         (SCALE)
@@ -45,4 +59,12 @@ Multi-turn chat tasks (prompt = "<turn 1> | <turn 2>"):
 
 Multi-step trajectory (Phase 3 teacher-forcing):
   polygon_trace.py  – PolygonTraceTask          (multi-step, used in Phase 3)
+
+Phase-3 trajectory builders in pretrain_teacher.py use:
+  • PolygonTraceTask          (70 % of trajectories, 4–9 steps)
+  • _build_select_then_erase  (2 steps: SELECT → ERASE)
+  • _build_select_then_rotate (2 steps: SELECT → ROTATE)
+  • _build_select_then_copy   (2 steps: SELECT → COPY)
+  • _build_select_then_move   (2 steps: SELECT → MOVE prepositional)
+  • _build_and_select         (2 steps: SELECT → MULTISELECT "and" query)
 """

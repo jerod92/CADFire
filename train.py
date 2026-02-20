@@ -70,7 +70,7 @@ def run_pretrain_tool(
     lr: float = 1e-3,
     batch_size: int = 64,
     device=None,
-    checkpoint_dir: str = "checkpoints_1",
+    checkpoint_dir: str = "model_saves",
     verbose: bool = True,
 ):
     """
@@ -164,7 +164,7 @@ def run_pretrain_semantic(
     cursor_weight: float = 1.0,
     num_workers: int = 0,
     device=None,
-    checkpoint_dir: str = "checkpoints_1",
+    checkpoint_dir: str = "model_saves",
     verbose: bool = True,
 ):
     """
@@ -252,7 +252,7 @@ def run_pretrain_teacher(
     cursor_weight: float = 1.5,
     polygon_ratio: float = 0.7,
     device=None,
-    checkpoint_dir: str = "checkpoints_1",
+    checkpoint_dir: str = "model_saves",
     verbose: bool = True,
 ):
     """
@@ -337,7 +337,7 @@ def run_supervised_diagnostics(
     phases=(1, 2, 3),
     panel_size: int = 128,
     device=None,
-    checkpoint_dir: str = "checkpoints_1",
+    checkpoint_dir: str = "model_saves",
     seed: int = 0,
     verbose: bool = True,
 ):
@@ -428,7 +428,7 @@ def run_diagnostics(
     output_dir: str = "diagnostics",
     fps: float = 1.5,
     device=None,
-    checkpoint_dir: str = "checkpoints_1",
+    checkpoint_dir: str = "model_saves",
     verbose: bool = True,
 ):
     """
@@ -486,7 +486,7 @@ def run_training(
     device=None,
     max_difficulty=None,
     config_path=None,
-    checkpoint_dir: str = "checkpoints_1",
+    checkpoint_dir: str = "model_saves",
     task_weights: dict | None = None,
     callback=None,
 ):
@@ -641,7 +641,7 @@ Examples:
                         help="torch device: cuda / cpu / None (auto)")
     parser.add_argument("--config",        type=str, default=None,
                         help="Path to config.json")
-    parser.add_argument("--checkpoint-dir",type=str, default="checkpoints_1",
+    parser.add_argument("--checkpoint-dir",type=str, default="model_saves",
                         help="Checkpoint directory")
 
     args = parser.parse_args()

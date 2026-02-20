@@ -25,7 +25,7 @@ from cadfire.utils.config import load_config, tool_list
 class CheckpointManager:
     """Manages model checkpoints and training diagnostics."""
 
-    def __init__(self, checkpoint_dir: str = "checkpoints_1",
+    def __init__(self, checkpoint_dir: str = "model_saves",
                  config: Dict[str, Any] | None = None):
         self.config = config or load_config()
         self.checkpoint_dir = Path(checkpoint_dir)

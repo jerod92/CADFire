@@ -74,7 +74,7 @@ class PPOTrainer:
 
         # Checkpoint manager
         self.ckpt = CheckpointManager(
-            checkpoint_dir=t.get("checkpoint_dir", "checkpoints_1"),
+            checkpoint_dir=t.get("checkpoint_dir", "model_saves"),
             config=self.config,
         )
 

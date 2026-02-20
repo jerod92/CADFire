@@ -43,11 +43,12 @@ class TestTextEncoder:
 
 class TestFusionBridge:
     def test_forward_shape(self):
-        fusion = FusionBridge(fusion_dim=64, state_dim=16)
-        vision = torch.randn(2, 64)
-        text = torch.randn(2, 64)
-        state = torch.randn(2, 16)
-        out = fusion(vision, text, state)
+        fusion   = FusionBridge(fusion_dim=64, state_dim=16)
+        vision   = torch.randn(2, 64)
+        text     = torch.randn(2, 64)
+        state    = torch.randn(2, 16)
+        spectral = torch.randn(2, 64)
+        out = fusion(vision, text, state, spectral)
         assert out.shape == (2, 64)
 
 

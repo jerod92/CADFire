@@ -16,7 +16,7 @@ import numpy as np
 
 from cadfire.engine.cad_engine import CADEngine
 from cadfire.engine.geometry import Entity
-from cadfire.tasks.pretrain_select_tasks import (
+from cadfire.tasks.pretrain.pretrain_select_tasks import (
     SEMANTIC_SHAPES, NUM_SEMANTIC_SHAPES, _place_shape,
 )
 

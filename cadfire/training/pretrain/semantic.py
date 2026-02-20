@@ -50,10 +50,10 @@ Loss design
 Usage
 ─────
     # Standalone
-    python -m cadfire.training.pretrain_semantic --samples 20000 --epochs 20
+    python -m cadfire.training.pretrain.semantic --samples 20000 --epochs 20
 
     # From train.py
-    from cadfire.training.pretrain_semantic import pretrain_semantic_cursor
+    from cadfire.training.pretrain.semantic import pretrain_semantic_cursor
     history = pretrain_semantic_cursor(agent, config, num_samples=20000, num_epochs=20)
 """
 
@@ -76,20 +76,20 @@ from cadfire.tokenizer.bpe import BPETokenizer
 from cadfire.utils.config import load_config, tool_to_index
 
 # ── Supervised task imports ────────────────────────────────────────────────────
-from cadfire.tasks.supervised.select import SemanticSelectTask, SemanticMultiSelectTask
-from cadfire.tasks.supervised.delete import DeleteObjectTask
-from cadfire.tasks.supervised.pan import PanTask
-from cadfire.tasks.supervised.zoom import ZoomInTask, ZoomOutTask
-from cadfire.tasks.supervised.hatch import HatchObjectTask
-from cadfire.tasks.supervised.trace_next import TraceNextPointTask
-from cadfire.tasks.supervised.copy_paste import CopyObjectTask
-from cadfire.tasks.supervised.move import MoveObjectTask
-from cadfire.tasks.supervised.rotate import RotateObjectTask
-from cadfire.tasks.supervised.multiturn import (
+from cadfire.tasks.pretrain.select import SemanticSelectTask, SemanticMultiSelectTask
+from cadfire.tasks.pretrain.delete import DeleteObjectTask
+from cadfire.tasks.pretrain.pan import PanTask
+from cadfire.tasks.pretrain.zoom import ZoomInTask, ZoomOutTask
+from cadfire.tasks.pretrain.hatch import HatchObjectTask
+from cadfire.tasks.pretrain.trace_next import TraceNextPointTask
+from cadfire.tasks.pretrain.copy_paste import CopyObjectTask
+from cadfire.tasks.pretrain.move import MoveObjectTask
+from cadfire.tasks.pretrain.rotate import RotateObjectTask
+from cadfire.tasks.pretrain.multiturn import (
     ScaleFromChatTask, MoveFromChatTask, RotateFromChatTask,
     EraseFromChatTask, ChangeColorFromChatTask, CopyFromChatTask,
 )
-from cadfire.tasks.supervised.transform_extra import (
+from cadfire.tasks.pretrain.transform_extra import (
     ScaleObjectTask, MirrorObjectTask, OffsetTask,
 )
 

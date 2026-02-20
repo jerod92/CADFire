@@ -96,7 +96,7 @@ def run_pretrain_tool(
     import torch
     from cadfire.model.cad_agent import CADAgent
     from cadfire.training.checkpoint import CheckpointManager
-    from cadfire.training.pretrain_tools import pretrain_tool_classifier
+    from cadfire.training.pretrain.tools import pretrain_tool_classifier
     from cadfire.utils.config import load_config
 
     config = config or load_config()
@@ -182,7 +182,7 @@ def run_pretrain_semantic(
     import torch.optim as optim
     from cadfire.model.cad_agent import CADAgent
     from cadfire.training.checkpoint import CheckpointManager
-    from cadfire.training.pretrain_semantic import pretrain_semantic_cursor
+    from cadfire.training.pretrain.semantic import pretrain_semantic_cursor
     from cadfire.utils.config import load_config
 
     config = config or load_config()
@@ -205,7 +205,7 @@ def run_pretrain_semantic(
         print(f"  Batch size     : {batch_size}")
         print(f"  Gaussian sigma : {sigma:.1f} px")
         print(f"  Cursor weight  : {cursor_weight}")
-        from cadfire.training.pretrain_semantic import _TASK_REGISTRY as _REG
+        from cadfire.training.pretrain.semantic import _TASK_REGISTRY as _REG
         print(f"  Tasks          : {len(_REG)} supervised task types")
         print("=" * 60)
 
@@ -270,7 +270,7 @@ def run_pretrain_teacher(
     import torch.optim as optim
     from cadfire.model.cad_agent import CADAgent
     from cadfire.training.checkpoint import CheckpointManager
-    from cadfire.training.pretrain_teacher import pretrain_teacher_forcing
+    from cadfire.training.pretrain.teacher import pretrain_teacher_forcing
     from cadfire.utils.config import load_config
 
     config = config or load_config()

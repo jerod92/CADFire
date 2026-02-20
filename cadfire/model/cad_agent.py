@@ -23,6 +23,7 @@ import torch.nn.functional as F
 from torch.distributions import Categorical
 
 from cadfire.model.vision_encoder import VisionEncoder
+from cadfire.model.spectral_encoder import SpectralEncoder
 from cadfire.model.text_encoder import TextEncoder
 from cadfire.model.fusion import FusionBridge
 from cadfire.model.action_heads import ToolHead, CursorHead
@@ -59,6 +60,13 @@ class CADAgent(nn.Module):
             in_channels=in_channels,
             base_channels=m["vision_base_channels"],
             fusion_dim=m["fusion_dim"],
+        )
+        self.spectral = SpectralEncoder(
+            in_channels=in_channels,
+            base_channels=m["vision_base_channels"],
+            fusion_dim=m["fusion_dim"],
+            modes_h=m.get("spectral_modes_h", 16),
+            modes_w=m.get("spectral_modes_w", 16),
         )
         self.text = TextEncoder(
             vocab_size=m["text_vocab_size"],
@@ -104,10 +112,11 @@ class CADAgent(nn.Module):
 
         # Encode
         skips, vision_global = self.vision(image)
+        spectral_feat = self.spectral(image)
         text_feat = self.text(text_ids)
 
-        # Fuse
-        fused = self.fusion(vision_global, text_feat, state_vec)
+        # Fuse (vision spatial | text | spectral frequency | state)
+        fused = self.fusion(vision_global, text_feat, state_vec, spectral_feat)
 
         # Action heads
         tool_out = self.tool_head(fused)

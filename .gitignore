@@ -5,7 +5,7 @@ __pycache__/
 dist/
 build/
 .eggs/
-checkpoints/
+model_saves/
 *.pt
 *.pth
 diagnostics.json

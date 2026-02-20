@@ -38,7 +38,7 @@ Usage
   generate_supervised_diagnostics(agent=agent, config=config, output_dir="sup_diag/")
 
   # CLI:
-  python -m cadfire.training.supervised_diagnostics --checkpoint checkpoints_1/
+  python -m cadfire.training.supervised_diagnostics --checkpoint model_saves/
 """
 
 from __future__ import annotations

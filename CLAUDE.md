@@ -26,11 +26,12 @@ cadfire/
   env/             # Gym-compatible RL environment
     cad_env.py     # Observation building, action dispatch, tool execution
   model/           # PyTorch model architecture (all from scratch)
-    vision_encoder.py  # ResNet-style CNN with skip connections for UNet
-    text_encoder.py    # Bidirectional GRU for prompt encoding
-    fusion.py          # Cross-attention fusion bridge
-    action_heads.py    # Tool Head (MLP) + Cursor Head (UNet decoder)
-    cad_agent.py       # Unified agent model with act/evaluate/extend
+    vision_encoder.py   # ResNet-style CNN with skip connections for UNet
+    spectral_encoder.py # Parallel FFT-based spectral pathway (SpectralConv2d)
+    text_encoder.py     # Bidirectional GRU for prompt encoding
+    fusion.py           # 4-way fusion bridge (vision/spectral/text/state)
+    action_heads.py     # Tool Head (MLP) + Cursor Head (UNet decoder)
+    cad_agent.py        # Unified agent model with act/evaluate/extend
   tasks/           # Task & reward system (the primary extensibility point)
     base.py        # BaseTask ABC with reward helpers
     registry.py    # Auto-discovery registry with @register_task decorator
@@ -48,8 +49,9 @@ cadfire/
     bpe.py         # Trainable BPE with CAD-aware pre-tokenization
   export/          # DXF export
     dxf_writer.py  # Pure-Python DXF R2010 writer
-  utils/           # Config loader
-    config.py      # Centralized config from config.json
+  utils/           # Config loader + vocabulary tracker
+    config.py         # Centralized config from config.json
+    vocab_tracker.py  # Scans tasks, builds vocabulary registry, reports coverage gaps
 config.json        # All hyperparameters, tool list, rendering settings
 train.py           # CLI training script
 train.ipynb        # Jupyter notebook for vast.ai
@@ -70,6 +72,14 @@ tests/             # 78 tests covering all modules
     - Channel (6+L+4): Y Window Coords (linear ramp 0→1, top to bottom).
 2.  **Text Input:** Tokenized prompt (BPE, vocab_size=4096, max_len=128).
 3.  **Vector State:** 16-dim vector: active tool, zoom, viewport center, layer, color, entity/selection counts.
+
+### A2. Spectral Pathway (parallel to spatial VisionEncoder)
+- The same image tensor is also fed through a `SpectralEncoder` which uses learnable
+  `SpectralConv2d` layers (Fourier Neural Operator style) to extract frequency-domain
+  features in parallel with the UNet-Down backbone.
+- Three stages: spectral conv output concatenated with spatial identity, then mixed and
+  downsampled with strided 3×3 conv → global pool → (B, fusion_dim).
+- `spectral_feat` feeds into the FusionBridge as the 4th modality.
 
 ### B. Model Head (Action Space)
 - **Tool Space (Bridge):** MLP outputting logits over the 55-tool command set.
@@ -137,7 +147,7 @@ That's it. The registry auto-discovers on `TaskRegistry.discover()`, and the tra
 - **Deployment:**
     1. Clone repo to Vast.ai.
     2. `pip install numpy torch` + run `train.ipynb` or `python train.py`.
-    3. Training saves `checkpoints/latest.pt` and `checkpoints/diagnostics.json`.
+    3. Training saves `model_saves/latest.pt` and `model_saves/diagnostics.json`.
     4. Pull updates with `git pull`: new tasks are auto-discovered, model resumes seamlessly.
 
 ## 8. Implementation Status
@@ -149,8 +159,9 @@ That's it. The registry auto-discovers on `TaskRegistry.discover()`, and the tra
 
 ### Model Architecture [DONE]
 - [x] Vision Encoder: ResNet-style with 4-scale skip connections
+- [x] Spectral Encoder: Parallel FFT-based pathway (SpectralConv2d, FNO-style) feeding fusion
 - [x] Text Encoder: Bidirectional GRU + BPE Tokenizer
-- [x] Fusion Bridge: Cross-attention between Vision, Text, and State
+- [x] Fusion Bridge: Cross-attention + concatenation of Vision/Spectral/Text/State (4-way)
 - [x] UNet-Up Decoder: Skip connections for pixel-precise cursor heatmap
 - [x] Tool Head: MLP with dynamic sizing for tool extension
 

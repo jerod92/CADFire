@@ -36,7 +36,7 @@ Usage
     )
 
     # From CLI:
-    python -m cadfire.training.diagnostics --checkpoint checkpoints_1/ --episodes 6
+    python -m cadfire.training.diagnostics --checkpoint model_saves/ --episodes 6
 """
 
 from __future__ import annotations
@@ -108,12 +108,37 @@ def _draw_crosshair(rgb: np.ndarray, row: int, col: int,
 
 def _make_text_bar(text: str, W: int, bar_h: int = 18,
                    bg=(30, 30, 30), fg=(230, 230, 230)) -> np.ndarray:
-    """Create a simple text-bar image using block pixels (no font rendering dep)."""
+    """
+    Create a text bar image.
+
+    Uses PIL/Pillow to render actual text if available; falls back to a
+    solid-coloured bar otherwise.
+
+    Parameters
+    ----------
+    text    : The string to render (truncated if too long for the bar width).
+    W       : Bar width in pixels (should match the side-by-side frame width).
+    bar_h   : Bar height in pixels.
+    bg      : Background colour (R, G, B) uint8.
+    fg      : Foreground / text colour (R, G, B) uint8.
+    """
     bar = np.full((bar_h, W, 3), bg, dtype=np.uint8)
-    # Simple 5-wide pixel font for digits/letters is complex; instead
-    # embed text as semi-transparent caption using ASCII-art blobs.
-    # Fallback: just coloured bar with no text rendering dependency.
-    _ = text  # text is unused for rendering but kept for caller documentation
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        img  = Image.fromarray(bar)
+        draw = ImageDraw.Draw(img)
+        # Use the default bitmap font; no external font files needed.
+        try:
+            font = ImageFont.truetype("DejaVuSansMono.ttf", size=max(10, bar_h - 4))
+        except Exception:
+            font = ImageFont.load_default()
+        # Truncate text that would overflow
+        max_chars = max(1, W // max(6, bar_h - 6))
+        display   = text if len(text) <= max_chars else text[:max_chars - 1] + "\u2026"
+        draw.text((4, 2), display, fill=fg, font=font)
+        bar = np.array(img)
+    except ImportError:
+        pass  # PIL not available — keep solid-coloured bar
     return bar
 
 
@@ -321,11 +346,11 @@ def oracle_rollout_gif(
             frame_right = _draw_crosshair(frame_right, r, c,
                                           color=(255, 200, 0), size=6)
 
-        # Text bar
+        # Text bar: include the current prompt so semantic alignment is visible
         oracle_name = idx_tool.get(oracle_tool_id, "?")
         pred_name   = idx_tool.get(pred_tool_id, "?")
-        bar_text = (f"step {t_step} | oracle:{oracle_name} "
-                    f"pred:{pred_name} | {'OK' if tool_correct else 'MISS'}")
+        bar_text = (f"[{t_step}] oracle:{oracle_name} pred:{pred_name} "
+                    f"{'OK' if tool_correct else 'MISS'} | {prompt_text}")
         bar = _make_text_bar(bar_text, W * 2, bar_h=20)
 
         combined = np.concatenate([
@@ -439,9 +464,9 @@ def free_rollout_gif(
                 frame_right = _draw_cursor_dot(frame_right, r, c,
                                                color=(100, 255, 100), radius=3)
 
-        bar_text = (f"step {step} | oracle:{idx_tool.get(oracle_tool_id, '?')} "
-                    f"pred:{idx_tool.get(pred_tool_id, '?')} | "
-                    f"{'OK' if tool_correct else 'MISS'}")
+        bar_text = (f"[{step}] oracle:{idx_tool.get(oracle_tool_id, '?')} "
+                    f"pred:{idx_tool.get(pred_tool_id, '?')} "
+                    f"{'OK' if tool_correct else 'MISS'} | {prompt_text}")
         bar = _make_text_bar(bar_text, W * 2, bar_h=20)
         combined = np.concatenate([
             _stack_frames(frame_left, frame_right), bar
@@ -496,6 +521,207 @@ def free_rollout_gif(
         "completed":     completed,
         "seed":          seed,
     }
+
+
+# ── Generic RL-task rollout GIF ───────────────────────────────────────────────
+
+def task_rollout_gif(
+    agent: CADAgent,
+    config: Dict,
+    task_category: str,
+    seed: int,
+    device: str,
+    output_path: Path,
+    max_steps: int = 20,
+    fps: float = 1.5,
+) -> Dict:
+    """
+    Autonomous rollout GIF for any RL task category.
+
+    Samples a task from ``task_category`` using TaskRegistry, resets the
+    environment, runs the agent autonomously for up to ``max_steps`` steps,
+    and records an annotated GIF.
+
+    Each frame shows:
+      - Left panel  : viewport RGB + cursor heatmap overlay + predicted cursor
+      - Right panel : reference image (if any, else blank)
+      - Caption bar : step index | predicted tool | current text prompt
+
+    Returns
+    -------
+    dict with keys: task_category, seed, n_steps, total_reward, completed
+    """
+    import torch
+    from cadfire.env.cad_env import CADEnv
+    from cadfire.tasks.registry import TaskRegistry
+
+    canvas   = config["canvas"]
+    H, W     = canvas["render_height"], canvas["render_width"]
+    idx_tool = index_to_tool()
+
+    TaskRegistry.discover()
+
+    # Sample a task from the requested category
+    try:
+        task_obj = TaskRegistry.sample(seed=seed, category=task_category)
+    except ValueError:
+        # Category may be unknown — fall back to any task
+        task_obj = TaskRegistry.sample(seed=seed)
+
+    env = CADEnv(config)
+    obs, info = env.reset(task=task_obj, seed=seed)
+    prompt_text = info.get("prompt", "")
+
+    frames:      List[np.ndarray] = []
+    total_reward = 0.0
+    completed    = False
+
+    for step in range(max_steps):
+        # Convert obs to tensors
+        image_t     = torch.from_numpy(obs["image"]).float().unsqueeze(0).to(device)
+        text_ids_t  = torch.from_numpy(obs["text_ids"]).long().unsqueeze(0).to(device)
+        state_vec_t = torch.from_numpy(obs["state_vec"]).float().unsqueeze(0).to(device)
+        obs_t = {"image": image_t, "text_ids": text_ids_t, "state_vec": state_vec_t}
+
+        # Agent prediction
+        pred = _agent_predict(agent, obs, device)
+        pred_tool_id   = pred["tool_id"]
+        pred_cursor_px = pred["cursor_px"]   # (row, col)
+        heatmap        = pred["cursor_heatmap"]
+
+        # Build left panel
+        viewport_rgb = (obs["image"][:, :, :3] * 255).astype(np.uint8)
+        frame_left   = _overlay_heatmap(viewport_rgb, heatmap, alpha=0.40)
+        frame_left   = _draw_cursor_dot(frame_left, pred_cursor_px[0],
+                                        pred_cursor_px[1], color=(0, 200, 255))
+
+        # Right panel: reference image if available, else black
+        ref_img = obs["image"][:, :, 3:6]
+        if ref_img.max() > 0:
+            frame_right = (ref_img * 255).astype(np.uint8)
+        else:
+            frame_right = np.zeros((H, W, 3), dtype=np.uint8)
+
+        # Caption bar (includes current prompt)
+        pred_name = idx_tool.get(pred_tool_id, "?")
+        bar_text  = f"[{step}] {pred_name} | {prompt_text}"
+        bar       = _make_text_bar(bar_text, W * 2, bar_h=20)
+
+        combined = np.concatenate([
+            _stack_frames(frame_left, frame_right),
+            bar,
+        ], axis=0)
+        frames.append(combined)
+
+        # Step environment
+        action = {
+            "tool_id": pred_tool_id,
+            "cursor":  np.zeros((H, W), dtype=np.float32),
+            "param":   0.0,
+        }
+        action["cursor"][pred_cursor_px[0], pred_cursor_px[1]] = 1.0
+
+        obs, reward, terminated, truncated, info = env.step(action)
+        total_reward += float(reward)
+        if terminated or truncated:
+            completed = terminated  # terminated = success, truncated = timeout
+            break
+
+    _save_gif(frames, output_path, fps=fps)
+    return {
+        "task_category": task_category,
+        "seed":          seed,
+        "n_steps":       len(frames),
+        "total_reward":  total_reward,
+        "completed":     completed,
+    }
+
+
+def generate_task_rollout_gifs(
+    agent: CADAgent,
+    task_categories: List[str] | None = None,
+    n_per_category: int = 2,
+    config: Dict | None = None,
+    output_dir: str = "diagnostics/rl_tasks",
+    device: str | None = None,
+    fps: float = 1.5,
+    max_steps: int = 20,
+    verbose: bool = True,
+) -> List[Dict]:
+    """
+    Generate autonomous rollout GIFs for multiple RL task categories.
+
+    Produces ``n_per_category`` GIFs per requested category, named
+    ``<category>_ep<N>.gif`` inside ``output_dir``.
+
+    Args:
+        agent           : Trained CADAgent.
+        task_categories : List of category names (e.g. ``["draw", "select"]``).
+                          Defaults to ``["draw", "select", "modify", "view"]``.
+        n_per_category  : GIFs to generate per category.
+        config          : Config dict.
+        output_dir      : Directory to write GIFs (created if missing).
+        device          : Torch device.
+        fps             : GIF frames per second.
+        max_steps       : Maximum steps per episode.
+        verbose         : Print per-episode stats.
+
+    Returns:
+        List of metric dicts (one per GIF).
+    """
+    import torch
+    config = config or load_config()
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    if task_categories is None:
+        task_categories = ["draw", "select", "modify", "view"]
+
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    all_metrics: List[Dict] = []
+
+    for cat in task_categories:
+        for ep in range(n_per_category):
+            seed = ep * 100 + hash(cat) % 97  # deterministic but varied per category
+            gif_path = out / f"{cat}_ep{ep:02d}.gif"
+
+            if verbose:
+                print(f"  [diag] {cat} episode {ep + 1}/{n_per_category}  (seed={seed})")
+
+            try:
+                m = task_rollout_gif(
+                    agent, config,
+                    task_category=cat,
+                    seed=seed,
+                    device=device,
+                    output_path=gif_path,
+                    max_steps=max_steps,
+                    fps=fps,
+                )
+            except Exception as exc:
+                if verbose:
+                    print(f"    [diag] WARNING: {cat} ep{ep} failed: {exc}")
+                m = {"task_category": cat, "seed": seed, "n_steps": 0,
+                     "total_reward": 0.0, "completed": False, "error": str(exc)}
+
+            all_metrics.append(m)
+
+            if verbose:
+                print(
+                    f"    steps={m['n_steps']}  "
+                    f"reward={m['total_reward']:.3f}  "
+                    f"completed={m['completed']}"
+                )
+
+    if verbose and all_metrics:
+        avg_r = sum(m["total_reward"] for m in all_metrics) / max(1, len(all_metrics))
+        pct_done = sum(1 for m in all_metrics if m.get("completed")) / max(1, len(all_metrics))
+        print(f"\n  [diag] TASK ROLLUP  avg_reward={avg_r:.3f} | "
+              f"completed={pct_done:.0%} ({sum(1 for m in all_metrics if m.get('completed'))}/{len(all_metrics)})")
+        print(f"  [diag] GIFs written to: {out.resolve()}/")
+
+    return all_metrics
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -605,7 +831,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="Generate diagnostic GIFs for polygon tracing"
     )
-    parser.add_argument("--checkpoint",  type=str, default="checkpoints_1",
+    parser.add_argument("--checkpoint",  type=str, default="model_saves",
                         help="Checkpoint directory to load agent from")
     parser.add_argument("--output-dir", type=str, default="diagnostics",
                         help="Output directory for GIFs")

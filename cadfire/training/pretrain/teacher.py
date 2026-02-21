@@ -45,10 +45,10 @@ After training saves checkpoint for Phase-4 (PPO).
 Usage
 ─────
     # Standalone
-    python -m cadfire.training.pretrain_teacher --trajectories 5000 --epochs 15
+    python -m cadfire.training.pretrain.teacher --trajectories 5000 --epochs 15
 
     # From train.py / notebook
-    from cadfire.training.pretrain_teacher import pretrain_teacher_forcing
+    from cadfire.training.pretrain.teacher import pretrain_teacher_forcing
     history = pretrain_teacher_forcing(agent, config, num_trajectories=5000, num_epochs=15)
 """
 
@@ -66,21 +66,24 @@ import torch.optim as optim
 from cadfire.engine.cad_engine import CADEngine
 from cadfire.model.cad_agent import CADAgent
 from cadfire.renderer.rasterizer import Renderer
-from cadfire.tasks.supervised.polygon_trace import PolygonTraceTask
+from cadfire.tasks.pretrain.polygon_trace import PolygonTraceTask
 from cadfire.tokenizer.bpe import BPETokenizer
-from cadfire.training.pretrain_semantic import (
+from cadfire.training.pretrain.semantic import (
     oracle_to_cursor_mask, focal_bce_loss,
 )
 from cadfire.utils.config import load_config, tool_to_index
 
 # ── Short two-step trajectory builders ────────────────────────────────────────
 
-from cadfire.tasks.supervised.select import SemanticSelectTask
-from cadfire.tasks.supervised.delete import DeleteObjectTask
-from cadfire.tasks.supervised.rotate import RotateObjectTask
-from cadfire.tasks.supervised.copy_paste import CopyObjectTask
-from cadfire.tasks.supervised.move import MoveObjectTask, prepositional_move_step
-from cadfire.tasks.supervised.conditional import AndSelectTrajectory
+from cadfire.tasks.pretrain.select import SemanticSelectTask
+from cadfire.tasks.pretrain.delete import DeleteObjectTask
+from cadfire.tasks.pretrain.rotate import RotateObjectTask
+from cadfire.tasks.pretrain.copy_paste import CopyObjectTask
+from cadfire.tasks.pretrain.move import MoveObjectTask, prepositional_move_step
+from cadfire.tasks.pretrain.conditional import AndSelectTrajectory
+from cadfire.tasks.draw_tasks import DrawArcTask, DrawEllipseTask
+from cadfire.tasks.modify_tasks import ChangeLayerTask
+from cadfire.tasks.select_tasks import SelectByColorTask
 
 
 def _build_select_then_erase(rng, engine, renderer, tokenizer, tool_idx,
@@ -262,6 +265,70 @@ def _build_and_select(rng, engine, renderer, tokenizer, tool_idx,
     return [step1, step2]
 
 
+def _build_select_then_change_layer(rng, engine, renderer, tokenizer, tool_idx,
+                                    H, W, sigma, state_dim, config) -> List[Dict]:
+    """2-step: SELECT an Object, then CHANGE_LAYER."""
+    select_task = SemanticSelectTask(seed=int(rng.randint(0, 2**31)))
+    engine.reset()
+    setup = select_task.setup(engine)
+    image = renderer.render(engine)
+    text_ids = np.array(tokenizer.encode_padded(setup["prompt"]), dtype=np.int32)
+    sv = _state_vec(engine, tool_idx, state_dim, config)
+    
+    oracle1 = select_task.oracle_action(engine, setup)
+    mask1 = oracle_to_cursor_mask(oracle1["cursor_world"], engine, H, W, sigma)
+    step1 = _make_step(image, text_ids, sv, tool_idx[oracle1["tool"]],
+                        mask1, oracle1.get("cursor_weight", 1.0))
+
+    engine.selected_ids.add(setup["target_entity"].id)
+
+    image2 = renderer.render(engine)
+    target_layer = int(rng.randint(1, 8))
+    prompt2 = f"Move it to layer {target_layer}"
+    text_ids2 = np.array(tokenizer.encode_padded(prompt2), dtype=np.int32)
+    sv2 = _state_vec(engine, tool_idx, state_dim, config)
+    
+    # Tool action without specific cursor focus
+    mask2 = oracle_to_cursor_mask(None, engine, H, W, sigma)
+    step2 = _make_step(image2, text_ids2, sv2, tool_idx["CHANGE_LAYER"], mask2, 0.1)
+    
+    return [step1, step2]
+
+
+def _build_select_by_color(rng, engine, renderer, tokenizer, tool_idx,
+                           H, W, sigma, state_dim, config) -> List[Dict]:
+    """N-step script: MULTISELECT all objects of identical colors."""
+    task = SelectByColorTask(seed=int(rng.randint(0, 2**31)))
+    engine.reset()
+    setup = task.setup(engine)
+    prompt = setup["prompt"]
+    text_ids = np.array(tokenizer.encode_padded(prompt), dtype=np.int32)
+    
+    # We will simulate multiple selections instead of one dense prediction
+    # to emulate sequential drawing logic
+    target_ids = list(task._target_ids)
+    rng.shuffle(target_ids)
+    
+    steps = []
+    
+    for _idx, tid in enumerate(target_ids):
+        image = renderer.render(engine)
+        sv = _state_vec(engine, tool_idx, state_dim, config)
+        
+        target_entity = engine.get_entity(tid)
+        cursor_loc = target_entity.centroid()
+        mask = oracle_to_cursor_mask(cursor_loc, engine, H, W, sigma)
+        
+        # Step
+        v_tool = "MULTISELECT"
+        w_tool = 1.0
+        steps.append(_make_step(image, text_ids, sv, tool_idx[v_tool], mask, w_tool))
+        
+        engine.selected_ids.add(tid)
+        
+    return steps
+
+
 def _render_entity_reference(entity, H: int, W: int, engine: CADEngine) -> np.ndarray:
     from cadfire.utils.config import load_config
     from cadfire.renderer.rasterizer import Renderer
@@ -377,6 +444,84 @@ def _build_draw_rectangle(rng, engine, renderer, tokenizer, tool_idx, H, W, sigm
                engine.pending_points.clear()
     return steps
 
+def _build_draw_arc(rng, engine, renderer, tokenizer, tool_idx, H, W, sigma, state_dim, config) -> List[Dict]:
+    from cadfire.engine.geometry import ArcEntity
+    center = np.array([float(rng.uniform(300, 700)), float(rng.uniform(300, 700))])
+    radius = float(rng.uniform(50, 200))
+    angle1 = float(rng.uniform(0, np.pi))
+    angle2 = float(angle1 + rng.uniform(np.pi/4, np.pi))
+    p1 = center + np.array([radius * np.cos(angle1), radius * np.sin(angle1)])
+    p2 = center + np.array([radius * np.cos(angle2), radius * np.sin(angle2)])
+    entity = ArcEntity(center=center.copy(), radius=radius, start_angle=np.degrees(angle1), end_angle=np.degrees(angle2), color_index=0)
+    ref_image = _render_entity_reference(entity, H, W, engine)
+    ref_float = ref_image.astype(np.float32) / 255.0
+    text_ids = np.array(tokenizer.encode_padded("Draw an arc matching the reference"), dtype=np.int32)
+    engine.reset()
+    engine.active_tool = "ARC"
+    steps = []
+    points = [center, p1, p2]
+    # 4 steps: click center, click start, click end, confirm
+    for step in range(4):
+        is_confirm = (step == 3)
+        image = renderer.render(engine)
+        if image.shape[2] > 5:
+            image[:, :, 3:6] = ref_float
+        sv = _state_vec(engine, tool_idx, state_dim, config)
+        if is_confirm:
+            tid = tool_idx["CONFIRM"]
+            mask = oracle_to_cursor_mask(points[-1], engine, H, W, sigma) 
+            w = 0.05
+        else:
+            tid = tool_idx["ARC"]
+            mask = oracle_to_cursor_mask(points[step], engine, H, W, sigma)
+            w = 1.0
+        steps.append(_make_step(image, text_ids.copy(), sv, tid, mask, w))
+        if not is_confirm:
+            engine.pending_points.append(points[step].copy())
+            if step == 2:
+               engine.add_entity(entity, save_undo=False)
+               engine.pending_points.clear()
+    return steps
+
+
+def _build_draw_ellipse(rng, engine, renderer, tokenizer, tool_idx, H, W, sigma, state_dim, config) -> List[Dict]:
+    from cadfire.engine.geometry import EllipseEntity
+    center = np.array([float(rng.uniform(300, 700)), float(rng.uniform(300, 700))])
+    semi_major = float(rng.uniform(100, 200))
+    semi_minor = float(rng.uniform(30, 90))
+    
+    p1 = center + np.array([semi_major, 0])
+    p2 = center + np.array([0, semi_minor])
+    entity = EllipseEntity(center=center.copy(), semi_major=semi_major, semi_minor=semi_minor, color_index=0)
+    ref_image = _render_entity_reference(entity, H, W, engine)
+    ref_float = ref_image.astype(np.float32) / 255.0
+    text_ids = np.array(tokenizer.encode_padded("Draw an ellipse matching the reference"), dtype=np.int32)
+    engine.reset()
+    engine.active_tool = "ELLIPSE"
+    steps = []
+    points = [center, p1, p2]
+    for step in range(4):
+        is_confirm = (step == 3)
+        image = renderer.render(engine)
+        if image.shape[2] > 5:
+            image[:, :, 3:6] = ref_float
+        sv = _state_vec(engine, tool_idx, state_dim, config)
+        if is_confirm:
+            tid = tool_idx["CONFIRM"]
+            mask = oracle_to_cursor_mask(points[-1], engine, H, W, sigma) 
+            w = 0.05
+        else:
+            tid = tool_idx["ELLIPSE"]
+            mask = oracle_to_cursor_mask(points[step], engine, H, W, sigma)
+            w = 1.0
+        steps.append(_make_step(image, text_ids.copy(), sv, tid, mask, w))
+        if not is_confirm:
+            engine.pending_points.append(points[step].copy())
+            if step == 2:
+               engine.add_entity(entity, save_undo=False)
+               engine.pending_points.clear()
+    return steps
+
 # ── Short trajectory builders registry ───────────────────────────────────────
 
 _SHORT_BUILDERS = [
@@ -388,6 +533,10 @@ _SHORT_BUILDERS = [
     _build_draw_line,
     _build_draw_circle,
     _build_draw_rectangle,
+    _build_draw_arc,
+    _build_draw_ellipse,
+    _build_select_then_change_layer,
+    _build_select_by_color,
 ]
 
 
@@ -414,7 +563,7 @@ class TeacherForcingDataset:
         config: Dict[str, Any] | None = None,
         num_trajectories: int = 5_000,
         sigma: float = 12.0,
-        polygon_ratio: float = 0.7,
+        polygon_ratio: float = 0.3,
         seed: int | None = None,
     ):
         self.config = config or load_config()
@@ -486,7 +635,7 @@ def pretrain_teacher_forcing(
     cursor_weight: float = 1.5,
     focal_gamma: float = 2.0,
     focal_alpha: float = 0.75,
-    polygon_ratio: float = 0.7,
+    polygon_ratio: float = 0.3,
     device: str | None = None,
     verbose: bool = True,
     seed: int | None = None,
@@ -711,7 +860,7 @@ def main():
     parser.add_argument("--lr",           type=float, default=1e-4)
     parser.add_argument("--sigma",        type=float, default=12.0)
     parser.add_argument("--cursor-weight",type=float, default=1.5)
-    parser.add_argument("--poly-ratio",   type=float, default=0.7)
+    parser.add_argument("--poly-ratio",   type=float, default=0.3)
     parser.add_argument("--device",       type=str,   default=None)
     parser.add_argument("--load",         type=str,   default=None)
     parser.add_argument("--save",         type=str,   default=None)

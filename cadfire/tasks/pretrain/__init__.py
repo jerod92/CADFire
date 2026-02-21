@@ -10,9 +10,9 @@ Each task:
   2. Exposes an ``oracle_action(engine, setup_info)`` that returns the single
      correct next step: ``{"tool": str, "cursor_world": np.ndarray|None,
                            "cursor_weight": float}``.
-  3. The caller (pretrain_semantic.py / pretrain_teacher.py) renders the
-     observation, converts the oracle to pixel-space, and trains with CE +
-     focal-BCE losses.
+  3. The caller (training/pretrain/semantic.py / training/pretrain/teacher.py)
+     renders the observation, converts the oracle to pixel-space, and trains
+     with CE + focal-BCE losses.
 
 Folder layout
 ─────────────
@@ -33,6 +33,15 @@ New single-step transform tasks:
   transform_extra.py – ScaleObjectTask          (SCALE)
                      – MirrorObjectTask         (MIRROR)
                      – OffsetTask               (OFFSET)
+
+Geometric-editing tasks:
+  geometry_ops.py    – FilletTask               (FILLET  – round corner, cursor at vertex)
+                     – ChamferTask              (CHAMFER – bevel corner, cursor at vertex)
+                     – TrimTask                 (TRIM    – cursor on segment to remove)
+
+Array tasks:
+  array_ops.py       – ArrayRectTask            (ARRAY_RECT  – cursor at far-corner of grid)
+                     – ArrayPolarTask           (ARRAY_POLAR – cursor at rotation centre)
 
 Conditional-reasoning tasks (IF / UNLESS / EXCEPT / ONLY / OR / AND):
   conditional.py    – IfSelectTask              (SELECT or NOOP based on IF condition)
@@ -60,7 +69,7 @@ Multi-turn chat tasks (prompt = "<turn 1> | <turn 2>"):
 Multi-step trajectory (Phase 3 teacher-forcing):
   polygon_trace.py  – PolygonTraceTask          (multi-step, used in Phase 3)
 
-Phase-3 trajectory builders in pretrain_teacher.py use:
+Phase-3 trajectory builders in training/pretrain/teacher.py use:
   • PolygonTraceTask          (70 % of trajectories, 4–9 steps)
   • _build_select_then_erase  (2 steps: SELECT → ERASE)
   • _build_select_then_rotate (2 steps: SELECT → ROTATE)

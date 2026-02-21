@@ -59,8 +59,13 @@ class PPOTrainer:
         # Create model
         self.agent = CADAgent(self.config).to(self.device)
 
-        # Optimizer
-        self.optimizer = optim.Adam(self.agent.parameters(), lr=t["lr"])
+        # Freeze the text encoder to prevent catastrophic forgetting during RL
+        for param in self.agent.text.parameters():
+            param.requires_grad = False
+
+        # Optimizer: only optimize parameters that require gradients
+        trainable_params = filter(lambda p: p.requires_grad, self.agent.parameters())
+        self.optimizer = optim.Adam(trainable_params, lr=t["lr"])
 
         # Rollout buffer
         self.buffer = RolloutBuffer(

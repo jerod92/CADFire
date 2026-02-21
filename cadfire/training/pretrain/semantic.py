@@ -50,10 +50,10 @@ Loss design
 Usage
 ─────
     # Standalone
-    python -m cadfire.training.pretrain_semantic --samples 20000 --epochs 20
+    python -m cadfire.training.pretrain.semantic --samples 20000 --epochs 20
 
     # From train.py
-    from cadfire.training.pretrain_semantic import pretrain_semantic_cursor
+    from cadfire.training.pretrain.semantic import pretrain_semantic_cursor
     history = pretrain_semantic_cursor(agent, config, num_samples=20000, num_epochs=20)
 """
 
@@ -76,27 +76,30 @@ from cadfire.tokenizer.bpe import BPETokenizer
 from cadfire.utils.config import load_config, tool_to_index
 
 # ── Supervised task imports ────────────────────────────────────────────────────
-from cadfire.tasks.supervised.select import SemanticSelectTask, SemanticMultiSelectTask
-from cadfire.tasks.supervised.delete import DeleteObjectTask
-from cadfire.tasks.supervised.pan import PanTask
-from cadfire.tasks.supervised.zoom import ZoomInTask, ZoomOutTask
-from cadfire.tasks.supervised.hatch import HatchObjectTask
-from cadfire.tasks.supervised.trace_next import TraceNextPointTask
-from cadfire.tasks.supervised.copy_paste import CopyObjectTask
-from cadfire.tasks.supervised.move import MoveObjectTask
-from cadfire.tasks.supervised.rotate import RotateObjectTask
-from cadfire.tasks.supervised.multiturn import (
+from cadfire.tasks.pretrain.select import SemanticSelectTask, SemanticMultiSelectTask
+from cadfire.tasks.pretrain.delete import DeleteObjectTask
+from cadfire.tasks.pretrain.pan import PanTask
+from cadfire.tasks.pretrain.zoom import ZoomInTask, ZoomOutTask
+from cadfire.tasks.pretrain.hatch import HatchObjectTask
+from cadfire.tasks.pretrain.trace_next import TraceNextPointTask
+from cadfire.tasks.pretrain.copy_paste import CopyObjectTask
+from cadfire.tasks.pretrain.move import MoveObjectTask
+from cadfire.tasks.pretrain.rotate import RotateObjectTask
+from cadfire.tasks.pretrain.multiturn import (
     ScaleFromChatTask, MoveFromChatTask, RotateFromChatTask,
     EraseFromChatTask, ChangeColorFromChatTask, CopyFromChatTask,
 )
-from cadfire.tasks.supervised.transform_extra import (
+from cadfire.tasks.pretrain.transform_extra import (
     ScaleObjectTask, MirrorObjectTask, OffsetTask,
 )
-from cadfire.tasks.supervised.draw_point import DrawPointTask
-from cadfire.tasks.supervised.control import UndoTask, RedoTask
-from cadfire.tasks.supervised.point_precision import (
+from cadfire.tasks.pretrain.draw_point import DrawPointTask
+from cadfire.tasks.pretrain.control import UndoTask, RedoTask
+from cadfire.tasks.pretrain.point_precision import (
     TriangleVertexTask, LineMidpointTask, CircleCenterTask,
 )
+from cadfire.tasks.draw_tasks import DrawArcTask, DrawEllipseTask
+from cadfire.tasks.modify_tasks import ChangeLayerTask
+from cadfire.tasks.select_tasks import SelectByColorTask
 
 
 # ── Cursor-mask helpers ────────────────────────────────────────────────────────
@@ -206,6 +209,11 @@ _TASK_REGISTRY = [
     (2.0, TriangleVertexTask,       {}),
     (2.0, LineMidpointTask,         {}),
     (2.0, CircleCenterTask,         {}),
+    # ── New Missing Tasks (Arc, Ellipse, Layer, Color) ─────────────────────
+    (1.0, DrawArcTask,              {}),
+    (1.0, DrawEllipseTask,          {}),
+    (1.0, ChangeLayerTask,          {}),
+    (1.0, SelectByColorTask,        {}),
     # ── Multi-turn chat tasks ───────────────────────────────────────────────
     # These teach the model to read conversation history:
     # prompt = "<first turn> | <second turn>"; entity already exists + selected

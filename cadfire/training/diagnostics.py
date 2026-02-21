@@ -51,10 +51,10 @@ import numpy as np
 from cadfire.engine.cad_engine import CADEngine
 from cadfire.model.cad_agent import CADAgent
 from cadfire.renderer.rasterizer import Renderer
-from cadfire.tasks.supervised.polygon_trace import (
+from cadfire.tasks.pretrain.polygon_trace import (
     PolygonTraceTask, _render_target_reference, _make_polygon_vertices,
 )
-from cadfire.tasks.supervised.trace_next import _TRACE_PROMPTS
+from cadfire.tasks.pretrain.trace_next import _TRACE_PROMPTS
 from cadfire.tokenizer.bpe import BPETokenizer
 from cadfire.utils.config import load_config, tool_to_index, index_to_tool
 

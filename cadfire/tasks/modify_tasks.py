@@ -251,7 +251,7 @@ class ChangeLayerTask(BaseTask):
     difficulty = 2.0
 
     def allowed_tools(self):
-        return UTILITY_TOOLS + ["SELECT", "CHANGE_LAYER"]
+        return UTILITY_TOOLS + ["SELECT", "LAYER_SET"]
 
     def generate_prompt_variants(self):
         return [
@@ -271,6 +271,7 @@ class ChangeLayerTask(BaseTask):
         )
         e.layer = 0
         engine.add_entity(e, save_undo=False)
+        engine.selected_ids.add(e.id)
         self._entity_id = e.id
         self._target_layer = int(self.rng.randint(1, 8))
 
@@ -288,3 +289,10 @@ class ChangeLayerTask(BaseTask):
         correct = e.layer == self._target_layer
         return {"reward": 1.0 if correct else -0.01, "terminated": correct,
                 "info": {"current_layer": e.layer, "target": self._target_layer}}
+
+    def oracle_action(self, engine: CADEngine, setup_info: Dict) -> Dict:
+        return {
+            "tool": "LAYER_SET",
+            "cursor_world": None,
+            "cursor_weight": 0.05,
+        }

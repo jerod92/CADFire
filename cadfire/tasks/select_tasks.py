@@ -185,6 +185,14 @@ class SelectByColorTask(BaseTask):
         return {"reward": f1 - 0.01, "terminated": terminated,
                 "info": {"f1": f1, "target_count": len(self._target_ids)}}
 
+    def oracle_action(self, engine: CADEngine, setup_info: Dict) -> Dict:
+        target_centers = [e.center.copy() for e in engine.entities if e.id in self._target_ids]
+        return {
+            "tool": "MULTISELECT",
+            "cursor_world": target_centers,
+            "cursor_weight": 1.0,
+        }
+
 
 @register_task
 class EraseSelectionTask(BaseTask):

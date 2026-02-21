@@ -289,6 +289,13 @@ class DrawEllipseTask(BaseTask):
         reward = iou + (0.1 if len(ells) == 1 else -0.05) + tool_bonus
         return {"reward": reward, "terminated": iou > 0.7, "info": {"iou": iou}}
 
+    def oracle_action(self, engine: CADEngine, setup_info: Dict) -> Dict:
+        return {
+            "tool": "ELLIPSE",
+            "cursor_world": self._center,
+            "cursor_weight": 1.0,
+        }
+
 
 @register_task
 class DrawArcTask(BaseTask):
@@ -335,6 +342,13 @@ class DrawArcTask(BaseTask):
         iou = self.iou_reward(arcs, [self._target])
         reward = iou + (0.1 if len(arcs) == 1 else -0.05) + tool_bonus
         return {"reward": reward, "terminated": iou > 0.65, "info": {"iou": iou}}
+
+    def oracle_action(self, engine: CADEngine, setup_info: Dict) -> Dict:
+        return {
+            "tool": "ARC",
+            "cursor_world": self._center,
+            "cursor_weight": 1.0,
+        }
 
 
 @register_task

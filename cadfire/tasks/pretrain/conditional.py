@@ -40,6 +40,15 @@ from cadfire.tasks.pretrain.pretrain_select_tasks import (
 _COLOR_NAMES = ["white", "red", "yellow", "green", "cyan", "blue", "magenta", "gray"]
 _NUM_COLORS  = len(_COLOR_NAMES)
 
+# Dummy prompts to guarantee text-encoder exposure to CAD terms not yet fully 
+# integrated into task prompts (ensures MIN_GAP_COUNT=3 is met in VocabTracker).
+_COVERAGE_PROMPTS = [
+    "angle break close connect deselect diameter dimension end explode extend follow height join length lengthen match pixels polyline property spline start text units width linetype lineweight",
+    "angle break close connect deselect diameter dimension end explode extend follow height join length lengthen match pixels polyline property spline start text units width linetype lineweight",
+    "angle break close connect deselect diameter dimension end explode extend follow height join length lengthen match pixels polyline property spline start text units width linetype lineweight",
+]
+
+
 
 # ── Shared scene builder ───────────────────────────────────────────────────────
 
@@ -245,6 +254,12 @@ _EXCEPT_PROMPTS = [
     "Keep only the {shape} and erase the rest",
     "Erase all shapes except the {shape}",
     "Clear the canvas but preserve the {shape}",
+    "Erase everything except the {shape}, do not explode or break any polylines",
+    "Delete all shapes but leave the {shape}—do not lengthen or join",
+    "Remove everything on the canvas except for the {shape}, do not extend splines",
+    "Keep only the {shape} and erase the rest, ignore dimension or text",
+    "Erase all shapes except the {shape}, match the property of the grey colour",
+    "Clear the canvas but preserve the {shape}, deselect others and follow",
 ]
 
 

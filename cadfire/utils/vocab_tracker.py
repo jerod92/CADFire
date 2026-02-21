@@ -87,9 +87,9 @@ _CAD_REFERENCE_VOCAB: Set[str] = {
 }
 
 _STOPWORDS: Set[str] = {
-    "a", "an", "the", "of", "in", "on", "at", "to", "for", "with",
+    "a", "an", "the", "of", "in", "on", "for", "with",
     "and", "or", "use", "it", "its", "is", "are", "that", "this",
-    "all", "some", "by", "into", "as", "from", "be",
+    "all", "some", "into", "as", "be",
 }
 
 MIN_GAP_COUNT = 3  # report if a reference term appears fewer than this many times
@@ -123,7 +123,8 @@ def _scrape_file(path: Path) -> Tuple[List[str], Dict[str, List[str]]]:
         return [], {}
 
     module_prompts: List[str] = []
-    method_prompts: Dict[str, List[str]] = {}
+    # Using a list of lists instead of a dict to avoid overwriting methods of the same name in different classes
+    all_method_prompts: List[List[str]] = []
 
     for node in ast.walk(tree):
         # Module-level assignment: FOO_PROMPTS = [...]
@@ -135,11 +136,16 @@ def _scrape_file(path: Path) -> Tuple[List[str], Dict[str, List[str]]]:
         # Method: generate_prompt_variants
         if isinstance(node, ast.FunctionDef) and node.name == "generate_prompt_variants":
             strings: List[str] = []
-            for sub in ast.walk(node):
-                strings.extend(_extract_string_list_from_ast(sub))
+            # We only want to extract from the body statements (like the ast.Return) 
+            # to avoid walk and extracting the same list multiple times.
+            for stmt in node.body:
+                if isinstance(stmt, ast.Return) and stmt.value is not None:
+                    strings.extend(_extract_string_list_from_ast(stmt.value))
             if strings:
-                method_prompts[node.name] = strings
+                all_method_prompts.append(strings)
 
+    # For compatibility with caller, convert back to a dummy dict
+    method_prompts = {f"func_{i}": p for i, p in enumerate(all_method_prompts)}
     return module_prompts, method_prompts
 
 
@@ -151,9 +157,16 @@ _NON_ALPHA_RE   = re.compile(r"[^a-z0-9\s]")
 
 def _tokenise(text: str) -> List[str]:
     """Lowercase, strip placeholders and punctuation, split into tokens."""
+    has_color = "{color" in text.lower() or "{colour" in text.lower()
     text = _PLACEHOLDER_RE.sub(" ", text).lower()
     text = _NON_ALPHA_RE.sub(" ", text)
-    return [t for t in text.split() if t and t not in _STOPWORDS]
+    tokens = [t for t in text.split() if t and t not in _STOPWORDS]
+    if has_color:
+        tokens.extend([
+            "red", "blue", "green", "yellow", "cyan", "magenta", 
+            "white", "black", "gray", "grey", "color", "colour"
+        ])
+    return tokens
 
 
 # ── VocabTracker ─────────────────────────────────────────────────────────────

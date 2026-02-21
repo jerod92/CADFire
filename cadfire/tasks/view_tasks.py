@@ -33,6 +33,7 @@ class FitViewTask(BaseTask):
             "Fit the drawing to the viewport",
             "Use FIT_VIEW to see all objects",
             "Zoom extents",
+            "Pan to fit the drawing units",
         ]
 
     def setup(self, engine: CADEngine) -> Dict[str, Any]:
@@ -77,6 +78,8 @@ class ZoomToCenterTask(BaseTask):
             "Pan to show the area around ({tx:.0f},{ty:.0f})",
             "Center the view on ({tx:.0f},{ty:.0f})",
             "Zoom to ({tx:.0f},{ty:.0f})",
+            "Pan the pixels to ({tx:.0f},{ty:.0f})",
+            "Pan and center to ({tx:.0f},{ty:.0f})",
         ]
 
     def setup(self, engine: CADEngine) -> Dict[str, Any]:

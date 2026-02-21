@@ -50,6 +50,7 @@ class DrawLineTask(BaseTask):
             "Create a line segment between ({x1:.0f},{y1:.0f}) and ({x2:.0f},{y2:.0f})",
             "Use the LINE tool to connect ({x1:.0f},{y1:.0f}) to ({x2:.0f},{y2:.0f})",
             "Draw a {color} line from ({x1:.0f},{y1:.0f}) to ({x2:.0f},{y2:.0f})",
+            "Connect the start point ({x1:.0f},{y1:.0f}) to the end point ({x2:.0f},{y2:.0f})",
         ]
 
     def setup(self, engine: CADEngine) -> Dict[str, Any]:
@@ -110,6 +111,7 @@ class DrawCircleTask(BaseTask):
             "Create a circle centered at ({cx:.0f},{cy:.0f}), radius {r:.0f}",
             "Make a {color} circle at ({cx:.0f},{cy:.0f}) with r={r:.0f}",
             "Use the CIRCLE tool at center ({cx:.0f},{cy:.0f}), radius {r:.0f}",
+            "Place a {color} circle at ({cx:.0f},{cy:.0f}) with a specified diameter or radius {r:.0f}",
         ]
 
     def setup(self, engine: CADEngine) -> Dict[str, Any]:
@@ -214,6 +216,7 @@ class DrawPolygonTask(BaseTask):
             "Draw a {sides}-sided polygon at ({cx:.0f},{cy:.0f}) with radius {r:.0f}",
             "Create a regular {sides}-gon centered at ({cx:.0f},{cy:.0f}), r={r:.0f}",
             "Make a {color} {sides}-sided shape at ({cx:.0f},{cy:.0f})",
+            "Draw a {color} {sides}-sided polygon at ({cx:.0f},{cy:.0f}) and close it",
         ]
 
     def setup(self, engine: CADEngine) -> Dict[str, Any]:
@@ -301,6 +304,7 @@ class DrawArcTask(BaseTask):
             "Draw an arc at ({cx:.0f},{cy:.0f}), r={r:.0f}, from {sa:.0f} to {ea:.0f} degrees",
             "Create an arc centered at ({cx:.0f},{cy:.0f}) with radius {r:.0f}",
             "Make a {color} arc at ({cx:.0f},{cy:.0f})",
+            "Draw a {color} arc with an angle from {sa:.0f} to {ea:.0f} degrees",
         ]
 
     def setup(self, engine: CADEngine) -> Dict[str, Any]:

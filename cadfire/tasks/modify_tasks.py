@@ -157,6 +157,7 @@ class ScaleShapeTask(BaseTask):
             "Scale the {shape} by a factor of {factor:.1f}",
             "Resize the {color} {shape} to {factor:.1f}x",
             "Make the {shape} {factor:.1f} times its current size",
+            "Adjust the length, width, and height of the {shape} by {factor:.1f}",
         ]
 
     def setup(self, engine: CADEngine) -> Dict[str, Any]:
@@ -257,6 +258,7 @@ class ChangeLayerTask(BaseTask):
             "Move the {shape} to layer {layer}",
             "Change the layer of the {color} {shape} to {layer}",
             "Put the {shape} on layer {layer}",
+            "Change the property, linetype, and lineweight to match layer {layer}",
         ]
 
     def setup(self, engine: CADEngine) -> Dict[str, Any]:
